@@ -1,0 +1,7 @@
+version: '3'
+services:
+  myapp:
+    image: myimage
+    ports:
+      - "8080:80"
+
