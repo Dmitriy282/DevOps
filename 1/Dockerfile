@@ -1,10 +1,12 @@
-FROM python:3.11 AS builder
+FROM python:3.11-slim AS builder
 WORKDIR /app
 COPY . /app
 # Установка зависимостей для сборки документации
-RUN pip install mkdocs
+RUN pip install sphinx
 # Сборка документации
-RUN mkdocs build
+RUN shpinx build
+RUN sudo apt install git
+
 
 # Второй этап: образ с Nginx, копирование документации
 FROM nginx:latest
