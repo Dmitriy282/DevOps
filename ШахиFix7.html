@@ -1,0 +1,1925 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mega Chess: Color Fix</title>
+    <style>
+        /* --- STYLES --- */
+        body { margin: 0; padding: 0; overflow: hidden; font-family: "Segoe UI", Arial, sans-serif; background: #eeeed2; user-select: none; }
+        #canvas { display: block; cursor: grab; }
+        #canvas:active { cursor: grabbing; }
+
+        #controls {
+            position: absolute; top: 10px; left: 10px;
+            background: rgba(255, 255, 255, 0.94);
+            padding: 12px; border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+            width: 380px;
+            max-height: 95vh;
+            overflow-y: auto;
+            backdrop-filter: blur(8px); z-index: 10;
+            transition: opacity 0.3s;
+            display: flex; flex-direction: column; gap: 10px;
+        }
+        #controls::-webkit-scrollbar { width: 8px; }
+        #controls::-webkit-scrollbar-track { background: #f0f0f0; border-radius: 4px; }
+        #controls::-webkit-scrollbar-thumb { background: #bbb; border-radius: 4px; }
+
+        #turnIndicator {
+            position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+            background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(4px);
+            color: #333; padding: 8px 25px; border-radius: 50px; font-size: 20px;
+            font-weight: bold; border: 1px solid rgba(0,0,0,0.1);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1); pointer-events: none;
+            display: flex; align-items: center; gap: 10px; transition: 0.3s; z-index: 10;
+        }
+
+        #loadingOverlay {
+            position: absolute; bottom: 20px; right: 20px; width: 300px;
+            background: rgba(0,0,0,0.8); display: none; padding: 15px; border-radius: 10px;
+            flex-direction: column; justify-content: center; align-items: flex-start;
+            z-index: 200; color: white; backdrop-filter: blur(5px);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            pointer-events: none;
+        }
+        .progress-bar { width: 100%; height: 6px; background: #444; border-radius: 3px; margin-top: 8px; overflow: hidden; }
+        .progress-fill { height: 100%; background: #2ecc71; width: 0%; transition: width 0.1s; }
+
+        /* --- PROMOTION OVERLAY STYLES --- */
+        #promotionOverlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.75); display: none; justify-content: center; align-items: center;
+            z-index: 150; backdrop-filter: blur(8px); animation: fadeIn 0.3s;
+        }
+        .promo-card {
+            background: white; padding: 25px; border-radius: 16px; text-align: center;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.8); border: 2px solid #3498db;
+            width: 500px; max-height: 80vh; display: flex; flex-direction: column;
+            animation: popIn 0.3s forwards;
+        }
+        .promo-header { font-size: 24px; margin-bottom: 15px; color: #2c3e50; font-weight: bold; }
+        .promo-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(50px, 1fr)); gap: 8px;
+            overflow-y: auto; padding: 10px; border: 1px solid #eee; border-radius: 8px; background: #f9f9f9;
+        }
+
+        .promo-btn {
+            font-size: 30px;
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: 0.2s;
+            padding: 5px;
+            color: #000 !important;
+            line-height: 1;
+        }
+        .promo-btn:hover { background: #e3f2fd; transform: scale(1.1); border-color: #3498db; }
+
+        #gameOverOverlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.6); display: none; justify-content: center; align-items: center;
+            z-index: 100; backdrop-filter: blur(5px); animation: fadeIn 0.5s;
+        }
+        .victory-card {
+            background: white; padding: 40px; border-radius: 20px; text-align: center;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.8); border: 4px solid #f1c40f;
+            min-width: 300px; transform: scale(0.9); animation: popIn 0.3s forwards;
+        }
+        .victory-card h1 { margin: 0; color: #e74c3c; font-size: 48px; text-transform: uppercase; }
+        .victory-card h2 { margin: 10px 0 30px 0; color: #2c3e50; font-size: 24px; }
+        .victory-card .winner-icon { font-size: 60px; margin: 10px 0; display: block; }
+
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes popIn { to { transform: scale(1); } }
+
+        h3 { margin: 0 0 5px 0; color: #2c3e50; font-size: 18px; border-bottom: 1px solid #ddd; padding-bottom: 8px; }
+        .control-group { margin-bottom: 5px; }
+        label { display: block; margin-bottom: 4px; font-size: 12px; font-weight: 700; color: #555; text-transform: uppercase; }
+        input, button { width: 100%; padding: 6px; box-sizing: border-box; border-radius: 6px; border: 1px solid #ccc; font-size: 13px; }
+
+        .btn-row { display: flex; gap: 4px; margin-top: 4px; }
+        button { background: #769656; color: white; border: none; cursor: pointer; font-weight: 600; transition: 0.1s; }
+        button:hover { background: #5d7c40; transform: translateY(-1px); }
+        button:active { transform: translateY(1px); }
+
+        button.secondary { background: #9ca3af; }
+        button.secondary:hover { background: #6b7280; }
+        button.danger { background: #e74c3c; }
+        button.danger:hover { background: #c0392b; }
+        button.action { background: #f39c12; }
+        button.action:hover { background: #d35400; }
+        button.checkers { background: #8e44ad; }
+        button.checkers:hover { background: #732d91; }
+        button.classic { background: #3498db; }
+        button.classic:hover { background: #2980b9; }
+        button.undo-btn { background: #555; }
+        button.undo-btn:hover { background: #333; }
+
+        /* --- LOG STYLES --- */
+        #logContainer {
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            margin-top: 5px;
+            overflow: hidden;
+        }
+        #logList {
+            max-height: 120px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+            background: #f9f9f9;
+        }
+        #logList::-webkit-scrollbar { width: 6px; }
+        #logList::-webkit-scrollbar-thumb { background: #ccc; }
+        .log-entry {
+            padding: 4px 8px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #333;
+        }
+        .log-entry:nth-child(even) { background: #f1f1f1; }
+        .log-entry span.move { font-weight: bold; color: #2c3e50; }
+        .log-entry span.capture { color: #c0392b; font-weight: bold; }
+
+        .piece-container { display: flex; flex-direction: column; gap: 8px; }
+        .category-block { background: rgba(0,0,0,0.03); border-radius: 6px; padding: 6px; border: 1px solid rgba(0,0,0,0.05); }
+        .grid-header { font-size: 11px; font-weight: bold; text-transform: uppercase; color: #666; margin-bottom: 4px; text-align: center; background: #e0e0e0; border-radius: 3px; padding: 2px; }
+        .piece-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 3px; }
+        .piece-btn { aspect-ratio: 1; padding: 0; font-size: 22px; background: #fff; color: #333; border: 1px solid #ccc; cursor: pointer; display: flex; align-items: center; justify-content: center; border-radius: 4px; transition: transform 0.1s, background 0.1s; }
+        .piece-btn:hover { background: #fff; transform: scale(1.15); z-index: 5; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
+        .piece-btn.selected { background: #769656; color: white; border-color: #4b6334; box-shadow: inset 0 0 5px rgba(0,0,0,0.3); }
+        .piece-btn.eraser { background: #ffebee; color: #c0392b; border-color: #e74c3c; font-size: 18px; }
+        .piece-btn.black-piece { background: #333; color: #eee; border-color: #000; }
+        .piece-btn.black-piece:hover { background: #555; }
+
+        .info-panel { margin-top: 10px; padding: 8px; background: rgba(241, 242, 246, 0.8); border-radius: 6px; font-size: 12px; color: #555; text-align: center;}
+        #debug { position: absolute; top: 10px; right: 10px; color: #555; background: rgba(255,255,255,0.5); padding: 5px 10px; border-radius: 4px; font-family: monospace; pointer-events: none; z-index: 5; }
+
+        .input-row { display: flex; gap: 5px; align-items: center; justify-content: space-between; margin-bottom: 5px;}
+        .input-row input[type="number"] { width: 60px; }
+        .input-row span { font-size: 12px; font-weight: bold; }
+        input[type=range] { padding: 0; margin: 5px 0; }
+        .separator { border-top: 1px dashed #ccc; margin: 5px 0; }
+        .gen-panel { background: rgba(0,0,0,0.05); padding: 8px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.1); }
+
+        #opt-warning { color: #d35400; font-weight: bold; display: none; margin-top: 5px; font-size: 11px; text-align: center;}
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+
+    <div id="loadingOverlay">
+        <strong id="loadingText">Генерація світу...</strong>
+        <div class="progress-bar">
+            <div id="loadingProgress" class="progress-fill"></div>
+        </div>
+        <div style="font-size: 10px; margin-top: 5px; color: #ccc">Оптимізована генерація...</div>
+    </div>
+
+    <!-- PROMOTION OVERLAY -->
+    <div id="promotionOverlay">
+        <div class="promo-card">
+            <div class="promo-header">✨ Оберіть фігуру ✨</div>
+            <div id="promotionGrid" class="promo-grid">
+                <!-- Buttons will be injected here -->
+            </div>
+            <div style="margin-top:10px; font-size:12px; color:#777;">Натисніть на фігуру для перетворення</div>
+        </div>
+    </div>
+
+    <div id="turnIndicator">
+        <span id="turnIcon" style="font-size: 30px;">♔</span>
+        <span id="turnText">Хід: Білі</span>
+    </div>
+
+    <div id="gameOverOverlay">
+        <div class="victory-card">
+            <h1>МАТ!</h1>
+            <span class="winner-icon" id="winnerIcon">🏆</span>
+            <h2 id="winnerTxt">Перемога Білих</h2>
+            <button class="action" onclick="game.resetGame()">🔄 Нова гра</button>
+        </div>
+    </div>
+
+    <div id="controls">
+        <h3>🚀 Mega Chess: Unlimited</h3>
+
+        <div class="control-group">
+            <label>Розмір дошки:</label>
+            <input type="number" id="boardSize" value="32" min="8" max="1000000">
+            <div class="btn-row">
+                <button class="secondary" onclick="game.setSize(100)">100</button>
+                <button class="secondary" onclick="game.setSize(1000)">1K</button>
+                <button class="secondary" onclick="game.setSize(50000)">50K</button>
+                <button class="secondary" onclick="game.setSize(1000000)">1M</button>
+            </div>
+        </div>
+
+        <div class="control-group gen-panel">
+             <label>⚔️ Генерація:</label>
+             <div class="input-row">
+                 <span>Заповнення (%):</span>
+                 <input type="number" id="fillPercent" value="25" min="1" max="50">
+             </div>
+             <div class="input-row">
+                <span>Фентезі %:</span>
+                <span id="fantasyPercentDisplay">40%</span>
+             </div>
+             <input type="range" id="fantasyMix" min="0" max="100" value="40" step="10">
+
+             <div class="btn-row">
+                 <button class="classic" onclick="game.fillClassic()">♟️ Клас.</button>
+                 <button class="action" onclick="game.fillFantasy()">🎲 Мікс</button>
+                 <button class="checkers" onclick="game.fillCheckers()">⚪⚫ Шашки</button>
+             </div>
+
+        </div>
+
+        <div class="separator"></div>
+
+        <div class="control-group">
+             <label>Режими:</label>
+             <div class="btn-row">
+                 <button class="undo-btn" onclick="game.undoMove()">↩️ Назад (Del)</button>
+                 <button id="rulesBtn" onclick="game.toggleRules()">🟢 Правила</button>
+             </div>
+             <div class="btn-row">
+                 <button id="turnBtn" onclick="game.toggleTurnMode()">🟢 Хід (ВКЛ)</button>
+             </div>
+        </div>
+
+        <div class="control-group">
+            <label>📜 Історія ходів:</label>
+            <div id="logContainer">
+                <div id="logList">
+                    <div class="log-entry" style="color:#999; justify-content:center;">Ходів ще немає</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="separator"></div>
+
+        <div class="control-group">
+             <label>🎨 Редактор (Всі фігури):</label>
+             <div id="pieceContainer" class="piece-container"></div>
+        </div>
+
+        <div class="separator"></div>
+
+        <div class="control-group">
+             <label>Масштаб: <span id="zoomDisplay">100%</span></label>
+             <input type="range" id="zoomSlider" min="-3" max="2" step="0.01">
+        </div>
+        <div class="separator"></div>
+        <div class="control-group">
+            <label>💾 Файл позиції:</label>
+            <div class="btn-row">
+                <button class="action" onclick="game.saveGame()">📥 Зберегти (.json)</button>
+                <button class="classic" onclick="document.getElementById('fileInput').click()">📂 Завантажити</button>
+                <!-- Прихований інпут для завантаження -->
+                <input type="file" id="fileInput" style="display:none" accept=".json" onchange="game.loadGame(this)">
+            </div>
+        </div>
+        <div class="btn-row">
+            <button onclick="game.centerBoard()">🏠 Центр</button>
+            <button class="danger" onclick="game.clear()">🗑️ Очистити</button>
+        </div>
+
+        <div class="info-panel">
+            <span id="coord">-</span> | Фігур: <span id="count">Auto</span>
+        </div>
+    </div>
+
+    <div id="debug">FPS: <span id="fps">60</span></div>
+
+    <script>
+        const PIECE_CATEGORIES = [
+            { name: "Інструменти", bg: "#fff", items: [{ s: 'delete', t: 'Гумка', c: 'eraser' }] },
+            { name: "Класика (Білі)", bg: "#f0f0f0", items: [{s:'♔',t:'Король'}, {s:'♕',t:'Ферзь'}, {s:'♖',t:'Тура'}, {s:'♗',t:'Слон'}, {s:'♘',t:'Кінь'}, {s:'♙',t:'Пішак'}] },
+            { name: "Класика (Чорні)", bg: "#ddd", items: [{s:'♚',t:'Король', cls:'black-piece', color:'b'}, {s:'♛',t:'Ферзь', cls:'black-piece', color:'b'}, {s:'♜',t:'Тура', cls:'black-piece', color:'b'}, {s:'♝',t:'Слон', cls:'black-piece', color:'b'}, {s:'♞',t:'Кінь', cls:'black-piece', color:'b'}, {s:'♟',t:'Пішак', cls:'black-piece', color:'b'}] },
+            { name: "Шашки", bg: "#e0e0e0", items: [{s:'⛀',t:'Біла шашка', color:'w'}, {s:'⛁',t:'Біла дамка', color:'w'}, {s:'⛂',t:'Чорна шашка', color:'b', cls:'black-piece'}, {s:'⛃',t:'Чорна дамка', color:'b', cls:'black-piece'}] },
+            { name: "Mega: Слайдери", bg: "#e8daef", items: [{s:'🚀',t:'Ракета'}, {s:'⚓',t:'Якір'}, {s:'🏹',t:'Лук'}, {s:'🎣',t:'Вудка'}, {s:'🧜',t:'Русалка'}, {s:'⚡',t:'Блискавка'}, {s:'🔱',t:'Тризуб'}, {s:'🦯',t:'Тростина'}, {s:'🕯️',t:'Свічка'}, {s:'📼',t:'Танк'}, {s:'📜',t:'Сувій'}, {s:'🌊',t:'Цунамі'}, {s:'🧬',t:'ДНК'}, {s:'🗡️',t:'Меч'}] },
+            { name: "Mega: Стрибуни (Тварини)", bg: "#d4e6f1", items: [{s:'😺',t:'Кіт'}, {s:'🐺',t:'Вовк'}, {s:'🦊',t:'Лис'}, {s:'🐗',t:'Кабан'}, {s:'🦍',t:'Горила'}, {s:'🐃',t:'Буйвол'}, {s:'🐊',t:'Крокодил'}, {s:'🐌',t:'Равлик'}, {s:'🦑',t:'Кальмар'}, {s:'🐙',t:'Восьминіг'}, {s:'🐝',t:'Бджола'}, {s:'🦋',t:'Метелик'}, {s:'🐫',t:'Верблюд'}, {s:'🦓',t:'Зебра'}, {s:'🦒',t:'Жирафа'}, {s:'🐕',t:'Пес'}, {s:'🦀',t:'Краб'}, {s:'🐆',t:'Леопард'}, {s:'🐿️',t:'Білка'}, {s:'🦇',t:'Кажан'}, {s:'🦗',t:'Коник'}] },
+            { name: "Mega: Комбіновані & Ролі", bg: "#f9e79f", items: [{s:'🎎',t:'Імператриця'}, {s:'👸',t:'Принцеса'}, {s:'🏺',t:'Амазонка'}, {s:'👮',t:'Поліція'}, {s:'🤖',t:'Робот'}, {s:'🛸',t:'НЛО'}, {s:'🏇',t:'Вершник'}, {s:'🌪️',t:'Торнадо'}, {s:'🧛',t:'Вампір'}, {s:'💂',t:'Гвардієць'}, {s:'👷',t:'Будівельник'}, {s:'🧞',t:'Джин'}, {s:'🧚',t:'Фея'}, {s:'☀️',t:'Сонце'}, {s:'🧙',t:'Маг'}, {s:'🕵️',t:'Шпигун'}, {s:'🥋',t:'Самурай'}, {s:'🥷',t:'Ніндзя'}, {s:'👨',t:'Чоловік'}, {s:'🤴',t:'Принц'}, {s:'👼',t:'Ангел'}] },
+            { name: "Mega: Арсенал & Монстри", bg: "#fadbd8", items: [{s:'🛡️',t:'Щит'}, {s:'🔪',t:'Кинджал'}, {s:'🔥',t:'Вогонь'}, {s:'💧',t:'Вода'}, {s:'❄️',t:'Сніг'}, {s:'🧟',t:'Зомбі'}, {s:'🪨',t:'Камінь'}, {s:'🧨',t:'Динаміт'}, {s:'💣',t:'Бомба'}, {s:'⚗️',t:'Зілля'}, {s:'💍',t:'Кільце'}, {s:'🔮',t:'Сфера'}, {s:'🦂',t:'Скорпіон'}, {s:'🐍',t:'Змія'}, {s:'🦖',t:'Ті-Рекс'}, {s:'🦈',t:'Акула'}, {s:'👾',t:'Чужий'}, {s:'👺',t:'Гоблін'}, {s:'🐲',t:'Дракон'}, {s:'🦄',t:'Єдиноріг'}, {s:'🦅',t:'Грифон'}, {s:'🕷️',t:'Павук'}, {s:'🐢',t:'Черепаха'}] },
+            { name: "Mega: Абстракція & Природа", bg: "#d5f5e3", items: [{s:'🌵',t:'Кактус'}, {s:'🍄',t:'Гриб'}, {s:'🌲',t:'Дерево'}, {s:'🍁',t:'Лист'}, {s:'🌋',t:'Вулкан'}, {s:'🌩️',t:'Гроза'}, {s:'🧩',t:'Пазл'}, {s:'🎲',t:'Кубик'}, {s:'⚛️',t:'Атом'}, {s:'🚜',t:'Трактор'}, {s:'⚔️',t:'Мечі'}, {s:'🐘',t:'Слон'}, {s:'🌛',t:'Місяць'}, {s:'⭐',t:'Зірка'}, {s:'🪐',t:'Планета'}, {s:'🌌',t:'Галактика'}] }
+        ];
+const megaDefs = {
+            '🕷️': { t: 'complex', comps: [{t:'step', d:'king'}, {t:'slide_jump', d:'knight'}] },
+            '🚜': { t: 'complex', comps: [{t:'slide', d:[[0,-1]]}, {t:'step', d:[[1,0],[-1,0],[0,1]]}] },
+            '⚔️': { t: 'complex', comps: [{t:'slide', d:'bishop'}, {t:'jump', d:'knight'}] },
+            '🐘': { t: 'complex', comps: [{t:'step', d:'rook'}, {t:'jump', d:[[2,2],[2,-2],[-2,2],[-2,-2]]}] },
+            '🚀': { t: 'slide', dirs: [[0,-1]] },
+            '⚓': { t: 'slide', dirs: [[0,1]] },
+            '🏹': { t: 'slide', dirs: [[-1,-1],[1,-1]] },
+            '🎣': { t: 'slide', dirs: [[-1,1],[1,1]] },
+            '🧜': { t: 'slide', dirs: [[1,0],[-1,0]] },
+            '⚡': { t: 'slide', dirs: [[0,-1],[-1,-1],[1,-1]] },
+            '🦯': { t: 'slide', dirs: [[1,1],[-1,1],[1,-1],[-1,-1]], max: 2 },
+            '🕯️': { t: 'slide', dirs: [[1,0],[-1,0],[0,1],[0,-1]], max: 3 },
+            '🔱': { t: 'slide', dirs: [[0,-1],[-1,-1],[1,-1]] },
+            '🌊': { t: 'slide', dirs: [[0,-1]] },
+            '📜': { t: 'slide', dirs: [[0,1]] },
+            '🧬': { t: 'slide', dirs: [[1,-1],[-1,-1]] },
+            '🗡️': { t: 'slide', dirs: [[1,-1],[-1,-1]] },
+            '🌵': { t: 'step', dirs: 'king' },
+            '🍄': { t: 'step', dirs: [[1,1],[1,-1],[-1,1],[-1,-1]] },
+            '🌲': { t: 'step', dirs: [[0,1],[0,-1]] },
+            '🍁': { t: 'step', dirs: [[1,-1],[-1,-1]] },
+            '🌋': { t: 'complex', comps: [{t:'step', d:'king'}, {t:'jump', d:'knight'}] },
+            '🌩️': { t: 'complex', comps: [{t:'slide', d:'rook'}, {t:'jump', d:[[2,2],[2,-2],[-2,2],[-2,-2]]}] },
+            '❄️': { t: 'complex', comps: [{t:'step', d:'king'}, {t:'jump', d:[[2,0],[-2,0],[0,2],[0,-2]]}] },
+            '🔥': { t: 'complex', comps: [{t:'step', d:[[1,1],[1,-1],[-1,1],[-1,-1]]}, {t:'step', d:[[1,0],[-1,0],[0,1],[0,-1]], mul:2}] },
+            '💧': { t: 'complex', comps: [{t:'step', d:[[1,0],[-1,0],[0,1],[0,-1]]}, {t:'step', d:[[1,1],[1,-1],[-1,1],[-1,-1]], mul:2}] },
+            '🪨': { t: 'none' },
+            '😺': { t: 'jump', dirs: [[1,-2],[-1,-2]] },
+            '🐺': { t: 'jump', dirs: 'knight' },
+            '🦊': { t: 'step', dirs: [[1,1],[1,-1],[-1,1],[-1,-1]] },
+            '🐗': { t: 'jump', dirs: [[0,-2]] },
+            '🦍': { t: 'jump', dirs: [[3,1],[3,-1],[-3,1],[-3,-1],[1,3],[1,-3],[-1,3],[-1,-3]] },
+            '🐃': { t: 'jump', dirs: [[3,2],[3,-2],[-3,2],[-3,-2],[2,3],[2,-3],[-2,3],[-2,-3]] },
+            '🐊': { t: 'jump', dirs: [[3,3],[3,-3],[-3,3],[-3,-3]] },
+            '🐌': { t: 'step', dirs: [[1,-1],[-1,-1]] },
+            '🦑': { t: 'jump', dirs: [[4,0],[-4,0],[0,4],[0,-4]] },
+            '🐙': { t: 'complex', comps: [{t:'jump', d:'knight'}, {t:'jump', d:[[1,2],[1,-2],[-1,2],[-1,-2]]}] },
+            '🐝': { t: 'complex', comps: [{t:'jump', d:[[0,2],[0,-2],[2,0],[-2,0]]}, {t:'step', d:[[1,1],[1,-1],[-1,1],[-1,-1]]}] },
+            '🦋': { t: 'complex', comps: [{t:'step', d:[[1,1],[1,-1],[-1,1],[-1,-1]]}, {t:'jump', d:[[2,2],[2,-2],[-2,2],[-2,-2]]}] },
+            '🐢': { t: 'step', dirs: [[0,1],[0,-1],[1,0],[-1,0]] },
+            '🐕': { t: 'step', dirs: [[0,1],[0,-1],[1,0],[-1,0]] },
+            '🐿️': { t: 'jump', dirs: 'knight' },
+            '🐆': { t: 'slide', dirs: 'bishop' },
+            '🦓': { t: 'jump', dirs: [[3,2],[3,-2],[-3,2],[-3,-2],[2,3],[2,-3],[-2,3],[-2,-3]] },
+            '🐫': { t: 'jump', dirs: [[3,1],[3,-1],[-3,1],[-3,-1],[1,3],[1,-3],[-1,3],[-1,-3]] },
+            '🦒': { t: 'jump', dirs: [[4,1],[4,-1],[-4,1],[-4,-1],[1,4],[1,-4],[-1,4],[-1,-4]] },
+            '🦗': { t: 'jump', dirs: [[0,2],[0,-2],[2,0],[-2,0],[2,2],[2,-2],[-2,2],[-2,-2]] },
+            '🦇': { t: 'complex', comps: [{t:'jump', d:[[2,2],[2,-2],[-2,2],[-2,-2]]}, {t:'step', d:[[1,0],[-1,0],[0,1],[0,-1]]}] },
+            '🦀': { t: 'step', dirs: [[0,1],[0,-1],[2,0],[-2,0]] },
+            '🧨': { t: 'jump', dirs: [[0,2],[0,-2],[2,0],[-2,0], [2,2],[2,-2],[-2,2],[-2,-2]] },
+            '🦂': { t: 'complex', comps: [{t:'step', d:'king'}, {t:'jump', d:[[0,2],[0,-2],[2,0],[-2,0]]}] },
+            '🐍': { t: 'complex', comps: [{t:'step', d:[[0,1],[0,-1],[1,0],[-1,0]]}, {t:'step', d:[[1,1],[1,-1],[-1,1],[-1,-1]]}] },
+            '🦖': { t: 'complex', comps: [{t:'slide', d:[[0,-1]]}, {t:'step', d:[[1,0],[-1,0]]}] },
+            '🦈': { t: 'complex', comps: [{t:'slide', d:[[1,-1],[-1,-1]]}, {t:'slide', d:[[0,1]]}] },
+            '👾': { t: 'jump', dirs: [[1,3],[1,-3],[-1,3],[-1,-3],[3,1],[3,-1],[-3,1],[-3,-1]] },
+            '🧟': { t: 'step', dirs: 'king' },
+            '👺': { t: 'slide', dirs: 'bishop' },
+            '🐻': { t: 'step', dirs: 'king' },
+            '🔮': { t: 'jump', dirs: [[2,2],[2,-2],[-2,2],[-2,-2]] },
+            '💍': { t: 'complex', comps: [{t:'step', d:'king'}, {t:'jump', d:[[3,3],[3,-3],[-3,3],[-3,-3]]}] },
+            '⚗️': { t: 'jump', dirs: [[1,4],[1,-4],[-1,4],[-1,-4],[4,1],[4,-1],[-4,1],[-4,-1]] },
+            '💣': { t: 'jump', dirs: [[0,2],[0,-2],[2,0],[-2,0]] },
+            '🧩': { t: 'complex', comps: [{t:'jump', d:'knight'}, {t:'step', d:[[1,0],[-1,0],[0,1],[0,-1]]}] },
+            '🎲': { t: 'complex', comps: [{t:'step', d:[[1,1],[-1,-1]]}, {t:'jump', d:[[2,2],[-2,-2]]}, {t:'jump', d:[[3,3],[-3,-3]]}] },
+            '⚛️': { t: 'jump', dirs: [[2,2],[-2,-2],[2,-2],[-2,2], [3,3],[-3,-3],[3,-3],[-3,3]] },
+            '🛡️': { t: 'step', dirs: [[1,0],[-1,0],[0,1],[0,-1]] },
+            '🔪': { t: 'complex', comps: [{t:'step', d:[[1,1],[-1,-1],[-1,1],[-1,-1]]}, {t:'jump', d:[[2,2],[2,-2],[-2,2],[-2,-2]]}] },
+            '📼': { t: 'complex', comps: [{t:'slide', d:[[0,-1]]}, {t:'step', d:[[1,0],[-1,0]]}] },
+            '🤖': { t: 'complex', comps: [{t:'slide', d:[[0,-1]]}, {t:'slide', d:[[1,1],[-1,1]]}] },
+            '🛸': { t: 'complex', comps: [{t:'slide', d:[[1,0],[-1,0],[0,1],[0,-1]]}, {t:'jump', d:[[2,2],[2,-2],[-2,2],[-2,-2]]}] },
+            '🌛': { t: 'jump', dirs: [[2,3],[2,-3],[-2,3],[-2,-3],[3,2],[3,-2],[-3,2],[-3,-2]] },
+            '⭐': { t: 'jump', dirs: [[2,1],[2,-1],[-2,1],[-2,-1],[1,2],[1,-2],[-1,2],[-1,-2], [2,0],[-2,0],[0,2],[0,-2], [2,2],[-2,-2],[2,-2],[-2,2]] },
+            '🪐': { t: 'jump', dirs: [[0,3],[0,-3],[3,0],[-3,0]] },
+            '🌌': { t: 'jump', dirs: [[3,0],[-3,0],[0,3],[0,-3], [3,3],[-3,-3],[3,-3],[-3,3]] },
+            '👨': { t: 'step', dirs: 'king' },
+            '🏇': { t: 'complex', comps: [{t:'slide_jump', d:[[1,2],[1,-2],[-1,2],[-1,-2],[2,1],[2,-1],[-2,1],[-2,-1]]}] },
+            '🎎': { t: 'complex', comps: [{t:'slide', d:'rook'}, {t:'jump', d:'knight'}] },
+            '👸': { t: 'complex', comps: [{t:'slide', d:'bishop'}, {t:'jump', d:'knight'}] },
+            '🏺': { t: 'complex', comps: [{t:'slide', d:'queen'}, {t:'jump', d:'knight'}] },
+            '👮': { t: 'complex', comps: [{t:'step', d:'king'}, {t:'jump', d:'knight'}] },
+            '🌪️': { t: 'complex', comps: [{t:'jump', d:'knight'}, {t:'jump', d:[[2,2],[2,-2],[-2,2],[-2,-2]]}] },
+            '🧛': { t: 'complex', comps: [{t:'slide', d:'bishop'}, {t:'jump', d:[[3,0],[-3,0],[0,3],[0,-3]]}] },
+            '💂': { t: 'step', dirs: [[0,-1],[1,0],[-1,0],[1,-1],[-1,-1],[1,1],[-1,1]] },
+            '👷': { t: 'slide', dirs: 'rook', max: 2 },
+            '🧞': { t: 'slide', dirs: 'queen', max: 3 },
+            '🧚': { t: 'slide', dirs: 'bishop', max: 2 },
+            '☀️': { t: 'slide', dirs: 'queen', max: 2 },
+            '🧙': { t: 'complex', comps: [{t:'step', d:'king'}, {t:'jump', d:[[3,1],[3,-1],[-3,1],[-3,-1],[1,3],[1,-3],[-1,3],[-1,-3]]}] },
+            '🕵️': { t: 'complex', comps: [{t:'jump', d:[[2,2],[2,-2],[-2,2],[-2,-2]]}, {t:'step', d:[[1,0],[-1,0],[0,1],[0,-1]]}] },
+            '🥋': { t: 'complex', comps: [{t:'step', d:[[1,1],[-1,-1],[1,-1],[-1,1]]}, {t:'jump', d:[[2,0],[-2,0],[0,2],[0,-2]]}] },
+            '🥷': { t: 'jump', dirs: [[1,1],[1,-1],[-1,1],[-1,-1], [2,2],[2,-2],[-2,2],[-2,-2]] },
+            '🤴': { t: 'complex', comps: [{t:'step', d:'king'}, {t:'slide', d:'rook'}] },
+            '👼': { t: 'complex', comps: [{t:'step', d:'king'}, {t:'slide', d:'bishop'}] },
+            '🦄': { t: 'complex', comps: [{t:'slide', d:'bishop'}, {t:'jump', d:'knight'}] },
+            '🦅': { t: 'complex', comps: [{t:'slide', d:'rook'}, {t:'jump', d:'knight'}] },
+            '🐲': { t: 'complex', comps: [{t:'slide', d:'queen'}, {t:'jump', d:'knight'}] }
+        };
+
+        const CHESS_SVGS = {
+            'w_♔': `<g transform="scale(0.02197265625)"><path fill="#f9f9f9" d="m501.6 1811 48.4-354.4-260-269.2s-166.4-288.2 29.9-481C582.2 448.7 826 727.2 826 727.2l195.6-165.7 184 165.7s216.4-232.5 430.4-76c214 156.5 255.4 317.6 117.4 531.6-138.1 214-250.9 280.7-250.9 280.7L1558 1811z"/><path fill="#101010" d="M977 298v-95h94v95h107v95h-107v153q-48-16-94 0V393H870v-95zm47 314q-47 0-136 121-31-36-50-55 93-140 186-140 92 0 186 140-20 19-50 55-90-121-136-121zm-447 907-26 156 145-84zm410-206q-1-147-36.5-274.5T870 845q-45-88-131.5-153T570 627q-103 0-208 93T257 949q0 109 86.5 236T546 1408q212-88 441-95zm37 530H448l61-365q-325-280-326-535-1-159 125-274.5T575 553q78 0 158.5 47T876 719q61 74 98.5 164.5T1024 1034q12-60 49-150.5t99-164.5q61-72 142-119t159-47q140 0 266 115.5T1865 943q-2 255-326 535l61 365zm0-74h489l-50-298q-216-84-439-84t-439 84l-50 298zm447-250 26 156-145-84zm-410-206q229 7 441 95 115-96 202-223t87-236q0-136-105.5-229T1478 627q-83 0-169.5 65T1178 845q-46 66-81.5 193.5T1061 1313zm-176 233 141-84 137 86-141 84z"/></g>`,
+            'w_♕': `<g transform="scale(0.02197265625)"><path fill="#f9f9f9" d="m508.5 1815.6 48.4-356.7-216.3-554.6-135.8-20.7-16.1-126.5 112.7-43.8 78.3 73.7-18.4 99 246.2 197.8 112.8-568.3L635 428l78.3-108 112.8 43.7-23 161 223.2 474 244-490-66.8-105.9 92-92 105.9 73.6L1337 534l103.5 529.2 260-161-16-142.7 131-46 57.6 131.1-207 103.6-175 529.2 48.4 308.4z"/><path fill="#101010" d="M1024 1769h478q-53-130-43-280-100-39-213-67.5t-222-28.5q-110 0-223 28.5T589 1489q9 150-43 280zm0-450q111 0 223.5 26.5T1468 1413q17-105 60.5-212.5T1634 988l-220 155-123-601-267 555-267-555-123 601-220-155q61 105 104.5 212.5T580 1413q108-41 220.5-67.5T1024 1319zm0 524H441q114-231 57.5-456.5T296 937q-12 2-19 2-54 0-92.5-38.5T146 808t38.5-92.5T277 677t92.5 38.5T408 808q0 20-6 38-4 14-15 33l196 139 100-486q-64-31-72-103-5-44 29-91t88-53q54-5 96 29t48 88q7 68-46 114l198 412 198-412q-54-46-46-114 6-54 48-88t96-29q54 6 87.5 53t29.5 91q-9 72-72 103l100 486 196-139q-12-19-15-33-6-18-6-38 0-54 38.5-92.5T1771 677t92.5 38.5T1902 808t-38.5 92.5T1771 939q-7 0-19-2-147 224-203 449.5t58 456.5zM276 746q-62 0-62 62t62 62q63 0 63-62t-63-62zm466-394q-62 0-62 62t62 62 62-62-62-62M590 1519l119 72-134 86q19-86 15-158zm1182-773q-63 0-63 62t63 62q62 0 62-62t-62-62zm-466-394q-62 0-62 62t62 62 62-62-62-62zm152 1167-119 72 134 86q-20-86-15-158zm-573 47 139-83 139 86-139 84z"/></g>`,
+            'w_♗': `<g transform="scale(0.02197265625)"><path fill="#f9f9f9" d="m948 366 1-139 148-7 1 147zM564 860c114-267 456-443 456-443s392 176 476 502c-9 209-183 332-183 332l27 221-653 6 46-233s-230-171-169-385zm-101 790c175 6 355 23 425-142h92s0 190-88 246c-163 103-625 38-625 38s-15-146 196-142zm631 37-36-185 102 5s22 153 315 131c381-17 318 153 318 153l-483 5z"/><path fill="#101010" d="M1024 356q66 0 64-66 1-55-64-55-66 0-64 55-3 66 64 66zm0 1204q0 114-101 199t-223 84H205q0-117 65-179t142-62h250q51 0 88-7t71-60l10-16h76q-7 21-3 13-45 105-109 125t-146 19H409q-52 0-86 40t-34 53h424q66 0 159-65t93-185H624q67-116 72-229-114-119-162-223t-6-224q33-96 118-189t312-247q-17-11-46-36t-29-79q0-58 41-96t100-38q58 0 100 38t41 96q0 54-29 79t-46 36q226 153 311 247t119 189q42 119-6 224t-162 223q4 113 72 229h-341q0 120 93 185t159 65h424q0-13-34-53t-86-40h-240q-83 0-146-19t-109-125q4 8-3-13h76l10 16q33 53 70 60t89 7h250q76 0 142 62t65 179h-495q-123 0-223-84t-101-199zm0-114h283q-28-84-29-154-120-41-254-38-135-3-254 38-2 70-29 154zm0-267q159-1 285 42 189-180 142-346-60-193-427-431-368 238-427 431-48 166 142 346 125-43 285-42zm-47-361V714h94v104h95v89h-95v165h-94V907h-95v-89z"/></g>`,
+            'w_♘': `<g fill="none" fill-rule="evenodd" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M 22,10 C 32.5,11 38.5,18 38,39 L 15,39 C 15,30 25,32.5 23,18" style="fill:#ffffff; stroke:#000000;"/><path d="M 24,18 C 24.38,20.91 18.45,25.37 16,27 C 13,29 13.18,31.34 11,31 C 9.958,30.06 12.41,27.96 11,28 C 10,28 11.19,29.23 10,30 C 9,30 5.997,31 6,26 C 6,24 12,14 12,14 C 12,14 13.89,12.1 14,10.5 C 13.27,9.506 13.5,8.5 13.5,7.5 C 14.5,6.5 16.5,10 16.5,10 L 18.5,10 C 18.5,10 19.28,8.008 21,7 C 22,7 22,10 22,10" style="fill:#ffffff; stroke:#000000;"/><path d="M 9.5 25.5 A 0.5 0.5 0 1 1 8.5,25.5 A 0.5 0.5 0 1 1 9.5 25.5 z" style="fill:#000000; stroke:#000000;"/><path d="M 15 15.5 A 0.5 1.5 0 1 1 14,15.5 A 0.5 1.5 0 1 1 15 15.5 z" style="transform:matrix(0.866,0.5,-0.5,0.866,9.693,-5.173); fill:#000000; stroke:#000000;"/></g>`,
+            'w_♖': `<g transform="scale(0.02197265625)"><path fill="#f9f9f9" d="m435 1804 16-212 152-115 51-688-148-115-7-276 210-2 4 138 198 2 7-140 212-3 14 145 193-4 5-138h204l-7 285-145 106 42 693 172 124 19 207z"/><path fill="#101010" d="M1024 1501H643l5-74h752l5 74zm0-661H692l5-74h654l5 74zm0 1003H383l29-264 159-118 50-659-149-107-17-341h289v147h137V354h286v147h137V354h289l-17 341-149 107 50 659 159 118 29 264zm0-74h557l-15-149-161-119-54-735 152-109 13-230h-138v148h-285V427H955v148H670V427H532l13 230 152 109-54 735-161 119-15 149z"/></g>`,
+            'w_♙': `<g fill="#fff" fill-rule="evenodd" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 9c-2.21 0-4 1.79-4 4 0 .89.29 1.71.78 2.38C17.33 16.5 16 18.59 16 21c0 2.03.94 3.84 2.41 5.03-3 1.06-7.41 5.55-7.41 13.47h23c0-7.92-4.41-12.41-7.41-13.47 1.47-1.19 2.41-3 2.41-5.03 0-2.41-1.33-4.5-2.78-5.62.49-.67.78-1.49.78-2.38 0-2.21-1.79-4-4-4z"/></g>`,
+            'b_♚': `<g transform="scale(0.02197265625)"><path fill="#101010" d="m501.6 1811 48.4-354.4-260-269.2s-166.4-288.2 29.9-481C582.2 448.7 826 727.2 826 727.2l195.6-165.7 184 165.7s216.4-232.5 430.4-76c214 156.5 255.4 317.6 117.4 531.6-138.1 214-250.9 280.7-250.9 280.7L1558 1811z"/><path fill="#f9f9f9" d="M977 298v-95h94v95h107v95h-107v153q-48-16-94 0V393H870v-95zm47 314q-47 0-136 121-31-36-50-55 93-140 186-140 92 0 186 140-20 19-50 55-90-121-136-121zm-447 907-26 156 145-84zm410-206q-1-147-36.5-274.5T870 845q-45-88-131.5-153T570 627q-103 0-208 93T257 949q0 109 86.5 236T546 1408q212-88 441-95zm37 530H448l61-365q-325-280-326-535-1-159 125-274.5T575 553q78 0 158.5 47T876 719q61 74 98.5 164.5T1024 1034q12-60 49-150.5t99-164.5q61-72 142-119t159-47q140 0 266 115.5T1865 943q-2 255-326 535l61 365zm0-74h489l-50-298q-216-84-439-84t-439 84l-50 298zm447-250 26 156-145-84zm-410-206q229 7 441 95 115-96 202-223t87-236q0-136-105.5-229T1478 627q-83 0-169.5 65T1178 845q-46 66-81.5 193.5T1061 1313zm-176 233 141-84 137 86-141 84z"/></g>`,
+            'b_♛': `<g transform="scale(0.02197265625)"><path fill="#101010" d="m508.5 1815.6 48.4-356.7-216.3-554.6-135.8-20.7-16.1-126.5 112.7-43.8 78.3 73.7-18.4 99 246.2 197.8 112.8-568.3L635 428l78.3-108 112.8 43.7-23 161 223.2 474 244-490-66.8-105.9 92-92 105.9 73.6L1337 534l103.5 529.2 260-161-16-142.7 131-46 57.6 131.1-207 103.6-175 529.2 48.4 308.4z"/><path fill="#f9f9f9" d="M1024 1769h478q-53-130-43-280-100-39-213-67.5t-222-28.5q-110 0-223 28.5T589 1489q9 150-43 280zm0-450q111 0 223.5 26.5T1468 1413q17-105 60.5-212.5T1634 988l-220 155-123-601-267 555-267-555-123 601-220-155q61 105 104.5 212.5T580 1413q108-41 220.5-67.5T1024 1319zm0 524H441q114-231 57.5-456.5T296 937q-12 2-19 2-54 0-92.5-38.5T146 808t38.5-92.5T277 677t92.5 38.5T408 808q0 20-6 38-4 14-15 33l196 139 100-486q-64-31-72-103-5-44 29-91t88-53q54-5 96 29t48 88q7 68-46 114l198 412 198-412q-54-46-46-114 6-54 48-88t96-29q54 6 87.5 53t29.5 91q-9 72-72 103l100 486 196-139q-12-19-15-33-6-18-6-38 0-54 38.5-92.5T1771 677t92.5 38.5T1902 808t-38.5 92.5T1771 939q-7 0-19-2-147 224-203 449.5t58 456.5zM276 746q-62 0-62 62t62 62q63 0 63-62t-63-62zm466-394q-62 0-62 62t62 62 62-62-62-62M590 1519l119 72-134 86q19-86 15-158zm1182-773q-63 0-63 62t63 62q62 0 62-62t-62-62zm-466-394q-62 0-62 62t62 62 62-62-62-62zm152 1167-119 72 134 86q-20-86-15-158zm-573 47 139-83 139 86-139 84z"/></g>`,
+            'b_♜': `<g transform="scale(0.02197265625)"><path fill="#101010" d="m435 1804 16-212 152-115 51-688-148-115-7-276 210-2 4 138 198 2 7-140 212-3 14 145 193-4 5-138h204l-7 285-145 106 42 693 172 124 19 207z"/><path fill="#f9f9f9" d="M1024 1501H643l5-74h752l5 74zm0-661H692l5-74h654l5 74zm0 1003H383l29-264 159-118 50-659-149-107-17-341h289v147h137V354h286v147h137V354h289l-17 341-149 107 50 659 159 118 29 264zm0-74h557l-15-149-161-119-54-735 152-109 13-230h-138v148h-285V427H955v148H670V427H532l13 230 152 109-54 735-161 119-15 149z"/></g>`,
+            'b_♝': `<g transform="scale(0.02197265625)"><path fill="#101010" d="m948 366 1-139 148-7 1 147zM564 860c114-267 456-443 456-443s392 176 476 502c-9 209-183 332-183 332l27 221-653 6 46-233s-230-171-169-385zm-101 790c175 6 355 23 425-142h92s0 190-88 246c-163 103-625 38-625 38s-15-146 196-142zm631 37-36-185 102 5s22 153 315 131c381-17 318 153 318 153l-483 5z"/><path fill="#f9f9f9" d="M1024 356q66 0 64-66 1-55-64-55-66 0-64 55-3 66 64 66zm0 1204q0 114-101 199t-223 84H205q0-117 65-179t142-62h250q51 0 88-7t71-60l10-16h76q-7 21-3 13-45 105-109 125t-146 19H409q-52 0-86 40t-34 53h424q66 0 159-65t93-185H624q67-116 72-229-114-119-162-223t-6-224q33-96 118-189t312-247q-17-11-46-36t-29-79q0-58 41-96t100-38q58 0 100 38t41 96q0 54-29 79t-46 36q226 153 311 247t119 189q42 119-6 224t-162 223q4 113 72 229h-341q0 120 93 185t159 65h424q0-13-34-53t-86-40h-240q-83 0-146-19t-109-125q4 8-3-13h76l10 16q33 53 70 60t89 7h250q76 0 142 62t65 179h-495q-123 0-223-84t-101-199zm0-114h283q-28-84-29-154-120-41-254-38-135-3-254 38-2 70-29 154zm0-267q159-1 285 42 189-180 142-346-60-193-427-431-368 238-427 431-48 166 142 346 125-43 285-42zm-47-361V714h94v104h95v89h-95v165h-94V907h-95v-89z"/></g>`,
+            'b_♞': `<g fill="none" fill-rule="evenodd" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M 22,10 C 32.5,11 38.5,18 38,39 L 15,39 C 15,30 25,32.5 23,18" style="fill:#000000; stroke:#ffffff;"/><path d="M 24,18 C 24.38,20.91 18.45,25.37 16,27 C 13,29 13.18,31.34 11,31 C 9.958,30.06 12.41,27.96 11,28 C 10,28 11.19,29.23 10,30 C 9,30 5.997,31 6,26 C 6,24 12,14 12,14 C 12,14 13.89,12.1 14,10.5 C 13.27,9.506 13.5,8.5 13.5,7.5 C 14.5,6.5 16.5,10 16.5,10 L 18.5,10 C 18.5,10 19.28,8.008 21,7 C 22,7 22,10 22,10" style="fill:#000000; stroke:#ffffff;"/><path d="M 9.5 25.5 A 0.5 0.5 0 1 1 8.5,25.5 A 0.5 0.5 0 1 1 9.5 25.5 z" style="fill:#ffffff; stroke:#ffffff;"/><path d="M 15 15.5 A 0.5 1.5 0 1 1 14,15.5 A 0.5 1.5 0 1 1 15 15.5 z" style="transform:matrix(0.866,0.5,-0.5,0.866,9.693,-5.173); fill:#ffffff; stroke:#ffffff;"/></g>`,
+            'b_♟': `<g fill="#000" fill-rule="evenodd" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 9c-2.21 0-4 1.79-4 4 0 .89.29 1.71.78 2.38C17.33 16.5 16 18.59 16 21c0 2.03.94 3.84 2.41 5.03-3 1.06-7.41 5.55-7.41 13.47h23c0-7.92-4.41-12.41-7.41-13.47 1.47-1.19 2.41-3 2.41-5.03 0-2.41-1.33-4.5-2.78-5.62.49-.67.78-1.49.78-2.38 0-2.21-1.79-4-4-4z"/></g>`
+        };
+
+        const CLASSIC_MAP = {
+            '♔':'w_♔', '♕':'w_♕', '♖':'w_♖', '♗':'w_♗', '♘':'w_♘', '♙':'w_♙',
+            '♚':'b_♚', '♛':'b_♛', '♜':'b_♜', '♝':'b_♝', '♞':'b_♞', '♟':'b_♟'
+        };
+        const DIRS = {
+            rook: [[0,1],[0,-1],[1,0],[-1,0]],
+            bishop: [[1,1],[1,-1],[-1,1],[-1,-1]],
+            queen: [[0,1],[0,-1],[1,0],[-1,0],[1,1],[1,-1],[-1,1],[-1,-1]],
+            knight: [[1,2],[1,-2],[-1,2],[-1,-2],[2,1],[2,-1],[-2,1],[-2,-1]],
+            king: [[0,1],[0,-1],[1,0],[-1,0],[1,1],[1,-1],[-1,1],[-1,-1]]
+        };
+
+        const GRID_VOID = -999;
+
+        class SmoothChess {
+            constructor() {
+                this.canvas = document.getElementById('canvas');
+                this.ctx = this.canvas.getContext('2d', { alpha: false });
+
+                this.boardSize = 32;
+                this.cellSize = 60;
+
+                this.camera = { x: 0, y: 0, zoom: 1 };
+                this.targetZoom = 1;
+                this.lerpFactor = 0.15;
+                this.minZoom = 0.000001;
+                this.maxZoom = 5.0;
+
+                this.mouse = { x: 0, y: 0 };
+                this.isDragging = false;
+                this.isDraggingPiece = false;
+                this.draggedPiece = null;
+                this.lastMouse = { x: 0, y: 0 };
+                this.isPainting = false;
+                this.isGenerating = false;
+
+                // --- PROMOTION STATE ---
+                this.promotionPending = null;
+
+                // --- KEYBOARD ---
+                this.keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
+
+                // Storage for MODIFIED pieces only.
+                this.grid = new Map();
+
+                // History for UNDO
+                this.moveHistory = [];
+
+                this.virtualGen = null;
+                this.virtualProps = { percent: 25, mix: 0 };
+
+                this.generationSeed = 0;
+
+                this.palette = [];
+                this.paletteMap = new Map();
+                this.pieceCount = 0;
+                this.kingPos = { w: null, b: null };
+
+                this.curSymbol = '♔';
+                this.curColor = 'w';
+
+                this.rulesEnabled = true;
+                this.turnModeEnabled = true;
+                this.currentTurn = 'w';
+                this.gameOver = false;
+                this.multiJumpSource = null;
+
+                this.highlightedMoves = [];
+                this.kingsInCheck = { w: null, b: null };
+
+                this.colors = {
+                    light: '#eeeed2',
+                    dark: 'rgba(80, 120, 60, 0.6)',
+                    border: '#3a4a2b',
+                    whiteP: '#ffffff',
+                    blackP: '#000000',
+                    neutralP: '#ffcc00',
+                    highlight: 'rgba(0, 255, 0, 0.5)',
+                    checkHighlight: 'rgba(255, 0, 0, 0.6)',
+                    mateHighlight: 'rgba(75, 0, 130, 0.9)'
+                };
+                this.colors.void = this.colors.light;
+
+                this.checkersSymbols = new Set(['⛀', '⛁', '⛂', '⛃']);
+                this.spriteCache = new Map();
+                this.lowResCache = new Map();
+                this.spriteSize = 100;
+
+                this.initUI();
+                this.init();
+                this.updateTurnIndicator();
+            }
+
+            initUI() {
+                const container = document.getElementById('pieceContainer');
+                container.innerHTML = '';
+
+                PIECE_CATEGORIES.forEach(cat => {
+                    const block = document.createElement('div');
+                    block.className = 'category-block';
+                    if(cat.bg) block.style.backgroundColor = cat.bg;
+                    const header = document.createElement('div');
+                    header.className = 'grid-header';
+                    header.innerText = cat.name;
+                    block.appendChild(header);
+                    const grid = document.createElement('div');
+                    grid.className = 'piece-grid';
+
+                    cat.items.forEach(item => {
+                        const btn = document.createElement('button');
+                        btn.className = `piece-btn ${item.cls || ''}`;
+                        if(item.s === 'delete') btn.classList.add('eraser');
+
+                        btn.innerText = item.s;
+                        btn.title = item.t;
+                        btn.dataset.s = item.s;
+                        btn.dataset.c = item.color || 'w';
+                        btn.addEventListener('click', () => {
+                            document.querySelectorAll('.piece-btn').forEach(b => b.classList.remove('selected'));
+                            btn.classList.add('selected');
+                            this.curSymbol = btn.dataset.s;
+                            this.curColor = btn.dataset.c;
+                        });
+                        if(item.s === '♔' && item.color !== 'b') btn.classList.add('selected');
+                        grid.appendChild(btn);
+                    });
+                    block.appendChild(grid);
+                    container.appendChild(block);
+                });
+            }
+
+            init() {
+                this.setSize(32);
+                this.resize();
+                window.addEventListener('resize', () => { this.resize(); });
+                this.canvas.addEventListener('wheel', e => this.onWheel(e), { passive: false });
+                this.canvas.addEventListener('mousedown', e => this.onMouseDown(e));
+                window.addEventListener('mousemove', e => this.onMouseMove(e));
+                window.addEventListener('mouseup', e => this.onMouseUp(e));
+                this.canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+                window.addEventListener('keydown', e => {
+                    if (e.key === 'Delete') {
+                        this.undoMove();
+                    } else {
+                        this.onKeyDown(e);
+                        if(this.keys.hasOwnProperty(e.code)) {
+                            this.keys[e.code] = true;
+                            e.preventDefault();
+                        }
+                    }
+                });
+                window.addEventListener('keyup', e => {
+                    if(this.keys.hasOwnProperty(e.code)) this.keys[e.code] = false;
+                });
+
+                document.getElementById('boardSize').addEventListener('change', e => this.setSize(e.target.value));
+                document.getElementById('zoomSlider').addEventListener('input', e => {
+                    this.targetZoom = Math.pow(10, parseFloat(e.target.value));
+                });
+                document.getElementById('fantasyMix').addEventListener('input', (e) => {
+                    document.getElementById('fantasyPercentDisplay').innerText = e.target.value + '%';
+                });
+
+                this.lastTime = performance.now();
+                this.animate();
+            }
+
+            resize() {
+                this.canvas.width = window.innerWidth;
+                this.canvas.height = window.innerHeight;
+                this.centerBoard();
+            }
+
+            getPaletteId(s, c) {
+                const key = s + c;
+                if (!this.paletteMap.has(key)) {
+                    this.palette.push({ s, c });
+                    this.paletteMap.set(key, this.palette.length);
+                }
+                return this.paletteMap.get(key);
+            }
+
+            getKey(c, r) {
+                return c + "," + r;
+            }
+
+            getCoordString(c, r) {
+                let label = "";
+                let index = c + 1;
+                while (index > 0) {
+                    let rem = (index - 1) % 26;
+                    label = String.fromCharCode(97 + rem) + label;
+                    index = Math.floor((index - 1) / 26);
+                }
+                return label + (this.boardSize - r);
+            }
+
+            addLogToUI(pieceIcon, startCoord, endCoord, isCapture) {
+                const list = document.getElementById('logList');
+                // Remove default placeholder if exists
+                if (list.children.length === 1 && list.children[0].innerText === 'Ходів ще немає') {
+                    list.innerHTML = '';
+                }
+
+                const div = document.createElement('div');
+                div.className = 'log-entry';
+
+                const moveText = `<span class="move">${pieceIcon}</span> ${startCoord} → ${endCoord}`;
+                const capText = isCapture ? `<span class="capture">⚔️</span>` : '';
+
+                div.innerHTML = `${moveText} ${capText}`;
+                list.prepend(div); // Newest first
+            }
+
+            removeLastLogEntry() {
+                const list = document.getElementById('logList');
+                if (list.children.length > 0) {
+                    list.removeChild(list.firstElementChild);
+                }
+                if (list.children.length === 0) {
+                    list.innerHTML = '<div class="log-entry" style="color:#999; justify-content:center;">Ходів ще немає</div>';
+                }
+            }
+
+            setSize(n) {
+                this.boardSize = Math.max(8, parseInt(n));
+                if (this.boardSize > 1000000) this.boardSize = 1000000;
+                document.getElementById('boardSize').value = this.boardSize;
+
+                this.grid.clear();
+                this.moveHistory = [];
+                this.virtualGen = null;
+                this.promotionPending = null;
+                document.getElementById('promotionOverlay').style.display = 'none';
+
+                this.resetGame();
+                this.centerBoard();
+            }
+
+            centerBoard() {
+                const boardPx = this.boardSize * this.cellSize;
+                const screenW = this.canvas.width;
+                const screenH = this.canvas.height;
+                const fitScaleX = screenW / boardPx;
+                const fitScaleY = screenH / boardPx;
+                const fitZoom = Math.min(fitScaleX, fitScaleY);
+                this.minZoom = Math.max(0.0000001, fitZoom * 0.1);
+                this.targetZoom = Math.max(this.minZoom, Math.min(this.maxZoom, fitZoom * 0.9));
+                this.camera.zoom = this.targetZoom;
+                this.camera.x = (screenW - boardPx * this.camera.zoom) / 2;
+                this.camera.y = (screenH - boardPx * this.camera.zoom) / 2;
+            }
+
+            clampCamera() {
+                // Allows panning freely on large boards
+            }
+
+            onWheel(e) {
+                if (this.promotionPending) return;
+                e.preventDefault();
+                const sensitivity = 0.0015;
+                let newZoom = this.targetZoom * (1 - e.deltaY * sensitivity);
+                newZoom = Math.max(this.minZoom, Math.min(this.maxZoom, newZoom));
+                this.targetZoom = newZoom;
+            }
+
+            isDarkSquare(c, r) { return (c + r) % 2 !== 0; }
+
+            getPieceSprite(symbol, color) {
+                const key = `${symbol}_${color}`;
+                if (this.spriteCache.has(key)) return this.spriteCache.get(key);
+
+                // Збільшуємо роздільну здатність для чіткості
+                this.spriteSize = 256;
+
+                const c = document.createElement('canvas');
+                c.width = this.spriteSize;
+                c.height = this.spriteSize;
+                const ctx = c.getContext('2d');
+
+                const svgKey = CLASSIC_MAP[symbol];
+
+                if (svgKey && ((color === 'w' && svgKey.startsWith('w')) || (color === 'b' && svgKey.startsWith('b')))) {
+                    const svgContent = CHESS_SVGS[svgKey];
+                    const img = new Image();
+
+                    // ВАЖЛИВО: Додаємо width/height і viewBox 0 0 45 45, щоб фігура розтягнулась на весь спрайт
+                    const svgData = `<svg xmlns="http://www.w3.org/2000/svg" width="${this.spriteSize}" height="${this.spriteSize}" viewBox="0 0 45 45">${svgContent}</svg>`;
+                    const blob = new Blob([svgData], {type: 'image/svg+xml'});
+                    const url = URL.createObjectURL(blob);
+
+                    img.onload = () => {
+                        ctx.clearRect(0, 0, this.spriteSize, this.spriteSize);
+                        ctx.drawImage(img, 0, 0, this.spriteSize, this.spriteSize);
+                        URL.revokeObjectURL(url);
+                    };
+                    img.src = url;
+
+                } else {
+                    // Для фентезі фігур
+                    const isWhite = color === 'w'; const isBlack = color === 'b';
+                    ctx.font = `bold ${this.spriteSize * 0.8}px Arial`;
+                    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                    ctx.lineWidth = this.spriteSize * 0.05; ctx.lineJoin = 'round';
+                    const cx = this.spriteSize / 2; const cy = this.spriteSize / 2 * 1.1;
+
+                    if (isWhite) ctx.strokeStyle = '#000000';
+                    else if (isBlack) ctx.strokeStyle = '#ffffff';
+                    else ctx.strokeStyle = '#333333';
+
+                    ctx.strokeText(symbol, cx, cy);
+                    ctx.fillStyle = isWhite ? this.colors.whiteP : (isBlack ? this.colors.blackP : this.colors.neutralP);
+                    ctx.fillText(symbol, cx, cy);
+                }
+
+                this.spriteCache.set(key, c);
+                return c;
+            }
+
+            getLowResSprite(symbol, color) {
+                const key = `${symbol}_${color}_lo`;
+                if (this.lowResCache.has(key)) return this.lowResCache.get(key);
+
+                // Збільшуємо якість "низької роздільної здатності"
+                const size = 128;
+                const c = document.createElement('canvas');
+                c.width = size; c.height = size;
+                const ctx = c.getContext('2d');
+
+                const svgKey = CLASSIC_MAP[symbol];
+
+                if (svgKey && ((color === 'w' && svgKey.startsWith('w')) || (color === 'b' && svgKey.startsWith('b')))) {
+                    const svgContent = CHESS_SVGS[svgKey];
+                    const img = new Image();
+                    // Теж саме: фіксуємо розмір SVG під канвас
+                    const svgData = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 45 45">${svgContent}</svg>`;
+                    const blob = new Blob([svgData], {type: 'image/svg+xml'});
+                    const url = URL.createObjectURL(blob);
+
+                    img.onload = () => {
+                        ctx.clearRect(0,0,size,size);
+                        ctx.drawImage(img, 0, 0, size, size);
+                        URL.revokeObjectURL(url);
+                    };
+                    img.src = url;
+                } else {
+                    const isWhite = color === 'w'; const isBlack = color === 'b';
+                    ctx.font = `${size}px Arial`;
+                    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                    const cx = size / 2; const cy = size / 2 * 1.1;
+                    ctx.fillStyle = isWhite ? '#fff' : (isBlack ? '#000' : '#fa0');
+                    ctx.fillText(symbol, cx, cy);
+                }
+
+                this.lowResCache.set(key, c);
+                return c;
+            }
+
+            pseudoRandom(x, y) {
+                return Math.abs(Math.sin(x * 12.9898 + y * 78.233) * 43758.5453) % 1;
+            }
+
+            getPiece(c, r) {
+                if (c < 0 || c >= this.boardSize || r < 0 || r >= this.boardSize) return null;
+
+                const key = this.getKey(c, r);
+                const val = this.grid.get(key);
+
+                if (val !== undefined) {
+                    if (val === GRID_VOID) return null;
+                    const id = val & 0xFFFF;
+                    const hasMoved = !!((val >> 16) & 1);
+                    const p = this.palette[id - 1];
+                    return { x: c, y: r, s: p.s, c: p.c, hasMoved: hasMoved };
+                }
+
+                if (this.virtualGen) {
+                    return this.getVirtualPiece(c, r);
+                }
+
+                return null;
+            }
+
+            getVirtualPiece(c, r) {
+                if (this.virtualGen === 'checkers') {
+                     const rowsCalc = Math.floor(this.boardSize * (this.virtualProps.percent / 100));
+                     const armyHeight = rowsCalc;
+                     if (!this.isDarkSquare(c, r)) return null;
+
+                     if (r < armyHeight) return { x:c, y:r, s:'⛂', c:'b' };
+                     if (r >= this.boardSize - armyHeight) return { x:c, y:r, s:'⛀', c:'w' };
+                     return null;
+                }
+
+                const rowsCalc = Math.floor(this.boardSize * (this.virtualProps.percent / 100));
+                const armyHeight = Math.max(2, rowsCalc);
+                const whiteStart = this.boardSize - armyHeight;
+
+                let relativeRow = -1;
+                let color = '';
+
+                // Identify if this row belongs to an army and normalize row index
+                if (r < armyHeight) {
+                    color = 'b';
+                    relativeRow = r;
+                } else if (r >= whiteStart) {
+                    color = 'w';
+                    relativeRow = (this.boardSize - 1) - r; // Mirror row index
+                } else {
+                    return null;
+                }
+
+                return this.generateProceduralPiece(c, relativeRow, color, armyHeight);
+            }
+
+            generateProceduralPiece(c, relativeRow, color, height) {
+                // King Safety: Always King at middle column, back rank
+                const kingCol = Math.floor(this.boardSize / 2);
+                if (c === kingCol && relativeRow === 0) {
+                    return { x: c, y: -1, s: color === 'b' ? '♚' : '♔', c: color };
+                }
+
+                // Pawns: Front line (normalized row = height - 1)
+                if (relativeRow === height - 1) {
+                    return { x: c, y: -1, s: color === 'b' ? '♟' : '♙', c: color };
+                }
+
+                const classicMajors = ['♖', '♘', '♗', '♕'];
+                const mirrorMap = { '♖': '♜', '♘': '♞', '♗': '♝', '♕': '♛' };
+                const fantasyMajors = ['🦄', '🦅', '🐲', '🕷️', '🐢', '🧨', '🐫', '🦓', '🦒', '🐘', '🚜', '⚔️', '🛡️', '👨', '🦗', '🦇', '🏹', '🐻', '🐕', '🦀', '🐆', '🐿️', '🤴', '👼', '👺', '🍄', '🌵', '🌲', '🍁', '🌋', '🌊', '🌪️', '🌩️', '🦂', '🐍', '🦖', '🦈', '🐝', '🦋', '🐙', '👾', '🗡️', '🔮', '📜', '💍', '⚗️', '💣', '🧩', '🎲', '🧬', '⚛️', ...Object.keys(megaDefs)];
+
+                // Use seed based on COLUMN and RELATIVE_ROW.
+                const seed = c * 49297 + relativeRow * 9301 + this.generationSeed;
+                const rnd = Math.abs(Math.sin(seed) * 10000) % 100;
+
+                let symbol;
+
+                if (this.virtualGen === 'fantasy' && rnd < this.virtualProps.mix) {
+                    // Fantasy Piece
+                    const idx = Math.floor(this.pseudoRandom(c + this.generationSeed, relativeRow * 5) * fantasyMajors.length);
+                    symbol = fantasyMajors[idx];
+                } else {
+                    // Classic Piece
+                    const idx = Math.floor(this.pseudoRandom(c + this.generationSeed, relativeRow * 7) * classicMajors.length);
+                    let base = classicMajors[idx];
+                    // Apply color mapping for Classic
+                    if (color === 'b') symbol = mirrorMap[base];
+                    else symbol = base;
+                }
+
+                return { x: c, y: -1, s: symbol, c: color };
+            }
+
+            setPiece(c, r, data) {
+                if (c < 0 || c >= this.boardSize || r < 0 || r >= this.boardSize) return;
+                const key = this.getKey(c, r);
+
+                if (!data) {
+                    if (this.virtualGen) {
+                        this.grid.set(key, GRID_VOID);
+                    } else {
+                        this.grid.delete(key);
+                    }
+                    return;
+                }
+
+                const paletteId = this.getPaletteId(data.s, data.c);
+                const hasMovedBit = (data.hasMoved ? 1 : 0) << 16;
+                this.grid.set(key, paletteId | hasMovedBit);
+
+                if (data.s === '♔' && data.c === 'w') this.kingPos.w = {c, r};
+                if (data.s === '♚' && data.c === 'b') this.kingPos.b = {c, r};
+            }
+
+            removePiece(c, r) { this.setPiece(c, r, null); }
+
+            resetGame() {
+                this.grid.clear();
+                this.moveHistory = [];
+                this.pieceCount = 0;
+                this.currentTurn = 'w'; this.gameOver = false;
+                this.multiJumpSource = null;
+                this.kingsInCheck = { w: null, b: null };
+                this.kingPos = { w: null, b: null };
+                this.promotionPending = null;
+                document.getElementById('promotionOverlay').style.display = 'none';
+                document.getElementById('gameOverOverlay').style.display = 'none';
+
+                document.getElementById('logList').innerHTML = '<div class="log-entry" style="color:#999; justify-content:center;">Ходів ще немає</div>';
+
+                this.updateUI(); this.updateTurnIndicator();
+            }
+
+            fillCheckers() {
+                let percent = parseFloat(document.getElementById('fillPercent').value);
+                if (isNaN(percent) || percent < 1) percent = 1; if (percent > 50) percent = 50;
+                this.resetGame();
+                this.virtualGen = 'checkers';
+                this.virtualProps.percent = percent;
+                this.updateUI();
+            }
+
+            fillClassic() {
+                let percent = parseFloat(document.getElementById('fillPercent').value);
+                if (isNaN(percent) || percent < 1) percent = 1; if (percent > 50) percent = 50;
+                this.resetGame();
+                this.generationSeed = Math.random() * 100000; // Change seed
+                this.virtualGen = 'classic';
+                this.virtualProps.percent = percent;
+                this.virtualProps.mix = 0;
+                this.updateUI();
+            }
+
+            fillFantasy() {
+                let percent = parseFloat(document.getElementById('fillPercent').value);
+                let mix = parseFloat(document.getElementById('fantasyMix').value);
+                if (isNaN(percent) || percent < 1) percent = 1; if (percent > 50) percent = 50;
+                this.resetGame();
+                this.generationSeed = Math.random() * 100000; // Change seed
+                this.virtualGen = 'fantasy';
+                this.virtualProps.percent = percent;
+                this.virtualProps.mix = mix;
+                this.updateUI();
+            }
+
+            clear() {
+                this.virtualGen = null;
+                this.resetGame();
+            }
+
+            saveGame() {
+                const pieces = [];
+                for (const [key, val] of this.grid) {
+                    const coord = key.split(',').map(Number);
+                    if (val === GRID_VOID) {
+                        pieces.push({ x: coord[0], y: coord[1], void: true });
+                        continue;
+                    }
+                    const id = val & 0xFFFF;
+                    const hasMoved = !!((val >> 16) & 1);
+                    const p = this.palette[id - 1];
+                    pieces.push({
+                        x: coord[0], y: coord[1], s: p.s, c: p.c, m: hasMoved ? 1 : 0
+                    });
+                }
+
+                const saveData = {
+                    format: "MegaChess_v4_History", // Оновлена версія формату
+                    timestamp: Date.now(),
+                    boardSize: this.boardSize,
+                    turn: this.currentTurn,
+                    virtualGen: this.virtualGen,
+                    virtualProps: this.virtualProps,
+                    generationSeed: this.generationSeed,
+                    moveHistory: this.moveHistory, // <-- ДОДАНО ЦЕ
+                    pieces: pieces
+                };
+
+                const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(saveData));
+                const downloadAnchorNode = document.createElement('a');
+                downloadAnchorNode.setAttribute("href", dataStr);
+                const date = new Date().toISOString().slice(0,10);
+                downloadAnchorNode.setAttribute("download", `megachess_${this.boardSize}x_${date}.json`);
+                document.body.appendChild(downloadAnchorNode);
+                downloadAnchorNode.click();
+                downloadAnchorNode.remove();
+            }
+
+            loadGame(inputElement) {
+                const file = inputElement.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const data = JSON.parse(e.target.result);
+                        this.applyLoadedData(data);
+                    } catch (err) {
+                        alert("Помилка читання файлу! Переконайтеся, що це правильний JSON.");
+                        console.error(err);
+                    }
+                    inputElement.value = '';
+                };
+                reader.readAsText(file);
+            }
+
+            applyLoadedData(data) {
+                this.grid.clear();
+                this.moveHistory = [];
+                this.kingsInCheck = { w: null, b: null };
+                this.kingPos = { w: null, b: null };
+                this.promotionPending = null;
+
+                if (data.boardSize) {
+                    document.getElementById('boardSize').value = data.boardSize;
+                    this.boardSize = data.boardSize;
+                }
+
+                this.virtualGen = data.virtualGen || null;
+                if (data.virtualProps) this.virtualProps = data.virtualProps;
+                if (data.generationSeed) this.generationSeed = data.generationSeed;
+
+                this.currentTurn = data.turn || 'w';
+
+                // 1. Відновлення фігур
+                if (Array.isArray(data.pieces)) {
+                    data.pieces.forEach(p => {
+                        if (p.x >= 0 && p.x < this.boardSize && p.y >= 0 && p.y < this.boardSize) {
+                            if (p.void) {
+                                this.grid.set(this.getKey(p.x, p.y), GRID_VOID);
+                            } else {
+                                this.setPiece(p.x, p.y, { s: p.s, c: p.c, hasMoved: !!p.m });
+                            }
+                        }
+                    });
+                }
+
+                // 2. Відновлення історії та відображення в лозі
+                const logList = document.getElementById('logList');
+                logList.innerHTML = ''; // Очищуємо лог перед заповненням
+
+                if (data.moveHistory && Array.isArray(data.moveHistory)) {
+                    this.moveHistory = data.moveHistory;
+
+                    // Проходимо по історії і додаємо в UI
+                    // Важливо: addLogToUI додає зверху (prepend), тому проходимо масив від початку до кінця
+                    this.moveHistory.forEach(step => {
+                        if (step.notation) {
+                            this.addLogToUI(
+                                step.notation.icon,
+                                step.notation.start,
+                                step.notation.end,
+                                step.notation.cap
+                            );
+                        }
+                    });
+                } else {
+                    // Якщо історії немає (старий файл), показуємо заглушку
+                    logList.innerHTML = '<div class="log-entry" style="color:#999; justify-content:center;">Ходів ще немає (Або файл без історії)</div>';
+                }
+
+                this.updateTurnIndicator();
+                this.centerBoard();
+                this.updateUI();
+
+                // Системне повідомлення в лог про успішне завантаження
+                const div = document.createElement('div');
+                div.className = 'log-entry';
+                div.style.color = 'green';
+                div.style.background = '#e8f5e9';
+                div.innerText = `📂 Файл завантажено успішно`;
+                logList.prepend(div);
+            }
+
+            getFileLabel(index) { let label = ""; index++; while (index > 0) { let rem = (index - 1) % 26; label = String.fromCharCode(97 + rem) + label; index = Math.floor((index - 1) / 26); } return label; }
+            isPathClear(c1, r1, c2, r2) { const dx = Math.sign(c2 - c1); const dy = Math.sign(r2 - r1); let x = c1 + dx; let y = r1 + dy; while (x !== c2 || y !== r2) { if (this.getPiece(x,y)) return false; x += dx; y += dy; } return true; }
+
+            getCheckersMoves(piece, cx, cy, onlyCaptures = false) {
+                const moves = [];
+                const captures = [];
+                const isWhite = piece.c === 'w';
+                const isKing = ['⛁', '⛃'].includes(piece.s);
+                const dirs = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
+
+                for (const d of dirs) {
+                    if (!isKing) {
+                        const enemyX = cx + d[0];
+                        const enemyY = cy + d[1];
+                        const landX = cx + d[0] * 2;
+                        const landY = cy + d[1] * 2;
+                        if (landX >= 0 && landX < this.boardSize && landY >= 0 && landY < this.boardSize) {
+                            const enemy = this.getPiece(enemyX, enemyY);
+                            const landing = this.getPiece(landX, landY);
+                            if (enemy && enemy.c !== piece.c && !landing) {
+                                captures.push({ c: landX, r: landY, isCapture: true, captured: {x: enemyX, y: enemyY} });
+                            }
+                        }
+                        if (!onlyCaptures) {
+                            const forward = isWhite ? -1 : 1;
+                            if (d[1] === forward) {
+                                if (enemyX >= 0 && enemyX < this.boardSize && enemyY >= 0 && enemyY < this.boardSize) {
+                                     if (!this.getPiece(enemyX, enemyY)) {
+                                         moves.push({ c: enemyX, r: enemyY });
+                                     }
+                                }
+                            }
+                        }
+                    } else {
+                        let dist = 1;
+                        let foundEnemy = null;
+                        while (true) {
+                            const tx = cx + d[0] * dist;
+                            const ty = cy + d[1] * dist;
+                            if (tx < 0 || tx >= this.boardSize || ty < 0 || ty >= this.boardSize) break;
+                            const target = this.getPiece(tx, ty);
+                            if (!foundEnemy) {
+                                if (target) {
+                                    if (target.c !== piece.c) foundEnemy = { x: tx, y: ty };
+                                    else break;
+                                } else {
+                                    if (!onlyCaptures) moves.push({ c: tx, r: ty });
+                                }
+                            } else {
+                                if (target) break;
+                                captures.push({ c: tx, r: ty, isCapture: true, captured: foundEnemy });
+                            }
+                            dist++;
+                        }
+                    }
+                }
+                if (captures.length > 0) return captures;
+                return moves;
+            }
+
+            validateMove(piece, c1, r1, c2, r2, checkingAttack = false) {
+                if (!this.rulesEnabled) return true;
+                if (this.checkersSymbols.has(piece.s) && !checkingAttack) {
+                    const legalMoves = this.generatePotentialMoves(piece, c1, r1);
+                    return legalMoves.some(m => m.c === c2 && m.r === r2);
+                }
+                const dx = c2 - c1; const dy = r2 - r1;
+                if (dx === 0 && dy === 0) return false;
+                const target = this.getPiece(c2, r2);
+                if (!checkingAttack && target && target.c === piece.c) return false;
+                const absDx = Math.abs(dx); const absDy = Math.abs(dy);
+                const type = piece.s; const isWhite = piece.c === 'w';
+
+                if (megaDefs[type]) {
+                    const def = megaDefs[type];
+                    const checkComp = (comp) => {
+                        const dirs = this._resolveDirs(comp.d || comp.dirs);
+                        const limit = comp.max || this.boardSize;
+                        for (const d of dirs) {
+                            let dirX = d[0]; let dirY = d[1];
+                            if (!isWhite && (['🚀','⚓','🏹','🎣','😺','🐗','🌊','🗡️','📜'].includes(type))) { dirY = -dirY; }
+                            if (comp.t === 'slide' || def.t === 'slide') {
+                                if (dirX === 0) { if (dx === 0 && Math.sign(dy) === Math.sign(dirY) && absDy <= limit) return this.isPathClear(c1, r1, c2, r2); }
+                                else if (dirY === 0) { if (dy === 0 && Math.sign(dx) === Math.sign(dirX) && absDx <= limit) return this.isPathClear(c1, r1, c2, r2); }
+                                else { if (absDx === absDy && Math.sign(dx) === Math.sign(dirX) && Math.sign(dy) === Math.sign(dirY) && absDx <= limit) return this.isPathClear(c1, r1, c2, r2); }
+                            }
+                            else if (comp.t === 'jump' || def.t === 'jump') { if (dx === dirX && dy === dirY) return true; }
+                            else if (comp.t === 'step' || def.t === 'step') { let mul = comp.mul || 1; if (dx === dirX*mul && dy === dirY*mul) return true; }
+                            else if (comp.t === 'slide_jump') { if (dx % dirX === 0 && dy % dirY === 0) { const steps = dx / dirX; if (steps === dy / dirY && steps > 0) { let cx = c1 + dirX, cy = r1 + dirY; while (cx !== c2 || cy !== r2) { if (this.getPiece(cx, cy)) return false; cx += dirX; cy += dirY; } return true; } } }
+                        }
+                        return false;
+                    };
+                    if (def.t === 'complex') { return def.comps.some(c => checkComp(c)); } else { return checkComp(def); }
+                }
+
+                const isRook = (dx === 0 || dy === 0) && this.isPathClear(c1, r1, c2, r2);
+                const isBishop = (absDx === absDy) && this.isPathClear(c1, r1, c2, r2);
+                const isKnight = (absDx === 2 && absDy === 1) || (absDx === 1 && absDy === 2);
+                if (['♖','♜','♕','♛','🦅','🐲','🤴','🍄'].includes(type)) { if (isRook) return true; }
+                if (['♗','♝','♕','♛','⛁','⛃','🦄','🐲','👼','🐆','👺'].includes(type)) { if (isBishop) return true; }
+                if (['♘','♞','🦄','🦅','🐲','🐿️'].includes(type)) { if (isKnight) return true; }
+                if (['♔','♚','👨','🐻','🤴','👼'].includes(type)) return absDx <= 1 && absDy <= 1;
+                if (type === '♙' || type === '♟') { const dir = isWhite ? -1 : 1; if (dx === 0 && dy === dir) return !target && !checkingAttack; if (dx === 0 && dy === dir * 2) { return !piece.hasMoved && !target && !checkingAttack && !this.getPiece(c1, r1 + dir); } if (absDx === 1 && dy === dir) return checkingAttack || (target && target.c !== piece.c); return false; }
+                if (['🐢','🐕'].includes(type)) return (absDx + absDy === 1) || (absDx===0 && dy===(isWhite?-1:1));
+                return false;
+            }
+
+            switchTurn() {
+                if (!this.turnModeEnabled || this.gameOver) return;
+                this.currentTurn = this.currentTurn === 'w' ? 'b' : 'w';
+                this.updateTurnIndicator();
+
+                if (this.rulesEnabled) {
+                    this.updateKingCheckStatus('w');
+                    this.updateKingCheckStatus('b');
+
+                    if (this.kingsInCheck[this.currentTurn]) {
+                        const kingPos = this.kingsInCheck[this.currentTurn];
+                        const kingPiece = this.getPiece(kingPos.c, kingPos.r);
+
+                        let canEscape = false;
+                        if (kingPiece) {
+                            const moves = this.generatePotentialMoves(kingPiece, kingPos.c, kingPos.r);
+                            for (const m of moves) {
+                                if (this.simulateMoveAndCheckSafety(kingPiece, kingPos.c, kingPos.r, m.c, m.r)) {
+                                    canEscape = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (!canEscape) {
+                            this.endGame();
+                        }
+                    }
+                }
+            }
+
+            endGame() {
+                this.gameOver = true;
+                const winner = this.currentTurn === 'w' ? "Чорні" : "Білі";
+                const icon = this.currentTurn === 'w' ? "♚" : "♔";
+                document.getElementById('winnerTxt').innerText = `Перемога: ${winner}`;
+                document.getElementById('winnerIcon').innerText = icon;
+                document.getElementById('gameOverOverlay').style.display = 'flex';
+            }
+
+            updateTurnIndicator() {
+                const ind = document.getElementById('turnIndicator');
+                const txt = document.getElementById('turnText');
+                const icon = document.getElementById('turnIcon');
+                if (!this.turnModeEnabled) { ind.style.display = 'none'; return; }
+                ind.style.display = 'flex';
+                if (this.currentTurn === 'w') {
+                    ind.style.background = 'rgba(255, 255, 255, 0.9)'; ind.style.color = '#000';
+                    ind.style.borderColor = (this.kingsInCheck.w) ? 'red' : '#000';
+                    txt.innerText = (this.kingsInCheck.w) ? "Хід: Білі (ШАХ!)" : "Хід: Білі";
+                    icon.innerText = "♔";
+                } else {
+                    ind.style.background = 'rgba(0, 0, 0, 0.9)'; ind.style.color = '#fff';
+                    ind.style.borderColor = (this.kingsInCheck.b) ? 'red' : '#fff';
+                    txt.innerText = (this.kingsInCheck.b) ? "Хід: Чорні (ШАХ!)" : "Хід: Чорні";
+                    icon.innerText = "♚";
+                }
+            }
+
+            toggleRules() { this.rulesEnabled = !this.rulesEnabled; if(!this.rulesEnabled) this.kingsInCheck = { w: null, b: null }; document.getElementById('rulesBtn').innerText = this.rulesEnabled ? "🟢 Правила" : "🔴 Правила"; }
+            toggleTurnMode() { this.turnModeEnabled = !this.turnModeEnabled; this.updateTurnIndicator(); document.getElementById('turnBtn').innerText = this.turnModeEnabled ? "🟢 Хід (ВКЛ)" : "🔴 Хід (ВИКЛ)"; }
+
+            findKing(color) {
+                if(color === 'w' && this.kingPos.w) return this.kingPos.w;
+                if(color === 'b' && this.kingPos.b) return this.kingPos.b;
+
+                if (this.virtualGen === 'classic' || this.virtualGen === 'fantasy') {
+                     const kingCol = Math.floor(this.boardSize/2);
+                     if (color === 'b') return {c: kingCol, r:0};
+                     if (color === 'w') return {c: kingCol, r:this.boardSize-1};
+                }
+
+                const kingSymbol = color === 'w' ? '♔' : '♚';
+                for (const [key, val] of this.grid) {
+                    if (val === GRID_VOID) continue;
+                    const id = val & 0xFFFF;
+                    const p = this.palette[id-1];
+                    if(p.s === kingSymbol && p.c === color) {
+                         const parts = key.split(',');
+                         return {c: parseInt(parts[0]), r: parseInt(parts[1])};
+                    }
+                }
+                return null;
+            }
+
+            isSquareAttacked(targetC, targetR, byOpponentOfColor) {
+                const enemyQueen = byOpponentOfColor === 'w' ? '♕' : '♛';
+                const enemyRook = byOpponentOfColor === 'w' ? '♖' : '♜';
+                const enemyBishop = byOpponentOfColor === 'w' ? '♗' : '♝';
+                const enemyKnight = byOpponentOfColor === 'w' ? '♘' : '♞';
+                const enemyPawn = byOpponentOfColor === 'w' ? '♙' : '♟';
+
+                const knights = [[1,2],[1,-2],[-1,2],[-1,-2],[2,1],[2,-1],[-2,1],[-2,-1]];
+                for (const [dx, dy] of knights) {
+                    const p = this.getPiece(targetC + dx, targetR + dy);
+                    if (p && p.c === byOpponentOfColor && (p.s === enemyKnight || p.s === '🦄')) return true;
+                }
+
+                const pawnDy = byOpponentOfColor === 'w' ? 1 : -1;
+                if (this.getPiece(targetC + 1, targetR + pawnDy)?.s === enemyPawn && this.getPiece(targetC + 1, targetR + pawnDy)?.c === byOpponentOfColor) return true;
+                if (this.getPiece(targetC - 1, targetR + pawnDy)?.s === enemyPawn && this.getPiece(targetC - 1, targetR + pawnDy)?.c === byOpponentOfColor) return true;
+
+                // --- ИСПРАВЛЕНИЕ ТУТ: меняем 30 на this.boardSize ---
+                const MAX_RAY = this.boardSize;
+                // ----------------------------------------------------
+
+                const checkRay = (dx, dy, types) => {
+                    let x = targetC + dx;
+                    let y = targetR + dy;
+                    let dist = 0;
+                    while (x >= 0 && x < this.boardSize && y >= 0 && y < this.boardSize && dist < MAX_RAY) {
+                        const p = this.getPiece(x, y);
+                        if (p) {
+                            if (p.c === byOpponentOfColor) {
+                                if (types.includes(p.s)) return true;
+                                if (types.includes(enemyQueen) && ['🧜','🔱','🦅'].includes(p.s)) return true;
+                            }
+                            return false;
+                        }
+                        x += dx; y += dy;
+                        dist++;
+                    }
+                    return false;
+                };
+
+                if (checkRay(0, 1, [enemyRook, enemyQueen])) return true;
+                if (checkRay(0, -1, [enemyRook, enemyQueen])) return true;
+                if (checkRay(1, 0, [enemyRook, enemyQueen])) return true;
+                if (checkRay(-1, 0, [enemyRook, enemyQueen])) return true;
+
+                if (checkRay(1, 1, [enemyBishop, enemyQueen])) return true;
+                if (checkRay(1, -1, [enemyBishop, enemyQueen])) return true;
+                if (checkRay(-1, 1, [enemyBishop, enemyQueen])) return true;
+                if (checkRay(-1, -1, [enemyBishop, enemyQueen])) return true;
+
+                return false;
+            }
+
+            isInCheck(kingColor) { const kingPos = this.findKing(kingColor); if (!kingPos) return false; return this.isSquareAttacked(kingPos.c, kingPos.r, kingColor === 'w' ? 'b' : 'w'); }
+            updateKingCheckStatus(color) { this.kingsInCheck[color] = this.isInCheck(color) ? this.findKing(color) : null; }
+
+            hasAnyLegalMoves(color) { return true; }
+            _resolveDirs(d) { return typeof d === 'string' ? DIRS[d] : d; }
+
+            generatePotentialMoves(piece, cx, cy) {
+                if (this.checkersSymbols.has(piece.s)) {
+                    if (!this.multiJumpSource && this.rulesEnabled) return this.getCheckersMoves(piece, cx, cy);
+                    else if (this.multiJumpSource) {
+                        if (cx !== this.multiJumpSource.c || cy !== this.multiJumpSource.r) return [];
+                        return this.getCheckersMoves(piece, cx, cy, true);
+                    }
+                    return this.getCheckersMoves(piece, cx, cy);
+                }
+
+                let moves = [];
+                const type = piece.s;
+                const isWhite = piece.c === 'w';
+
+                const addStep = (dx, dy) => {
+                    let x = cx + dx; let y = cy + dy;
+                    if (x >= 0 && x < this.boardSize && y >= 0 && y < this.boardSize) moves.push({c: x, r: y});
+                };
+
+                // ВАЖЛИВО: Ставимо повний розмір дошки, щоб лінія йшла до кінця
+                const MAX_SLIDE = this.boardSize;
+
+                const addTrace = (dx, dy, maxSteps = MAX_SLIDE) => {
+                    let x = cx + dx; let y = cy + dy;
+                    let steps = 0;
+                    while (x >= 0 && x < this.boardSize && y >= 0 && y < this.boardSize && steps < maxSteps) {
+                        const target = this.getPiece(x, y);
+                        if (target) {
+                            if (target.c !== piece.c) moves.push({c: x, r: y});
+                            break;
+                        }
+                        // Додаємо КОЖНУ точку, щоб лінія була суцільною
+                        moves.push({c: x, r: y});
+                        x += dx; y += dy;
+                        steps++;
+                    }
+                };
+
+                if (['♖','♜','♕','♛'].includes(type)) { addTrace(1,0); addTrace(-1,0); addTrace(0,1); addTrace(0,-1); }
+                if (['♗','♝','♕','♛'].includes(type)) { addTrace(1,1); addTrace(-1,1); addTrace(1,-1); addTrace(-1,-1); }
+                if (['♘','♞'].includes(type)) { [[1,2],[1,-2],[-1,2],[-1,-2],[2,1],[2,-1],[-2,1],[-2,-1]].forEach(d => addStep(d[0], d[1])); }
+                if (['♔','♚'].includes(type)) { for(let i=-1;i<=1;i++) for(let j=-1;j<=1;j++) if(i||j) addStep(i,j); }
+                if (['♙','♟'].includes(type)) {
+                    const d = isWhite ? -1 : 1;
+                    if (!this.getPiece(cx, cy + d)) addStep(0, d);
+                    if (!this.getPiece(cx, cy + d*2) && !this.getPiece(cx, cy + d) && !piece.hasMoved) addStep(0, d*2);
+                    const t1 = this.getPiece(cx + 1, cy + d); if (t1 && t1.c !== piece.c) addStep(1, d);
+                    const t2 = this.getPiece(cx - 1, cy + d); if (t2 && t2.c !== piece.c) addStep(-1, d);
+                }
+                if (['🐢', '🐕'].includes(type)) { [[0,1],[0,-1],[1,0],[-1,0]].forEach(d => addStep(d[0], d[1])); }
+
+                if (megaDefs[type]) {
+                    const def = megaDefs[type];
+                    const FLIP_Y_LIST = ['🚀','⚓','🏹','🎣','😺','🐗','🌊','🗡️','📜'];
+                    const processComp = (comp) => {
+                        const dirs = this._resolveDirs(comp.d || comp.dirs);
+                        const limit = comp.max || this.boardSize;
+                        const moveType = comp.t || def.t;
+                        for (const d of dirs) {
+                            let dirX = d[0]; let dirY = d[1];
+                            if (!isWhite && FLIP_Y_LIST.includes(type)) dirY = -dirY;
+                            if (moveType === 'slide' || moveType === 'slide_jump') addTrace(dirX, dirY, Math.min(limit, MAX_SLIDE));
+                            else { let mul = comp.mul || 1; addStep(dirX * mul, dirY * mul); }
+                        }
+                    };
+                    if (def.t === 'complex') def.comps.forEach(c => processComp(c)); else processComp(def);
+                }
+                return moves;
+            }
+
+            simulateMoveAndCheckSafety(piece, startC, startR, targetC, targetR) {
+                if (!this.validateMove(piece, startC, startR, targetC, targetR)) return false;
+
+                const keyStart = this.getKey(startC, startR);
+                const keyTarget = this.getKey(targetC, targetR);
+
+                const valStart = this.grid.get(keyStart);
+                const valTarget = this.grid.get(keyTarget);
+
+                const wasKingW = this.kingPos.w;
+                const wasKingB = this.kingPos.b;
+
+                if (valStart === undefined && this.virtualGen) {
+                    const p = this.getVirtualPiece(startC, startR);
+                    const pid = this.getPaletteId(p.s, p.c);
+                    this.grid.set(keyTarget, pid);
+                    this.grid.set(keyStart, GRID_VOID);
+                } else {
+                    this.grid.set(keyTarget, valStart);
+                    this.grid.delete(keyStart);
+                }
+
+                if(piece.s === '♔') this.kingPos.w = {c: targetC, r: targetR};
+                if(piece.s === '♚') this.kingPos.b = {c: targetC, r: targetR};
+
+                const isSafe = !this.isInCheck(piece.c);
+
+                if (valTarget === undefined) this.grid.delete(keyTarget); else this.grid.set(keyTarget, valTarget);
+                if (valStart === undefined) this.grid.delete(keyStart); else this.grid.set(keyStart, valStart);
+
+                this.kingPos.w = wasKingW;
+                this.kingPos.b = wasKingB;
+
+                return isSafe;
+            }
+
+            calculateHighlights(piece, cx, cy) {
+                if (!this.rulesEnabled) return;
+                this.highlightedMoves = [];
+                const potentialMoves = this.generatePotentialMoves(piece, cx, cy);
+
+                // Якщо ходів дуже багато (велика дошка), ми пропускаємо важку перевірку безпеки для ВІЗУАЛІЗАЦІЇ.
+                // Це дозволяє миттєво показати ходи.
+                const skipSafetyCheck = potentialMoves.length > 200;
+
+                for (const move of potentialMoves) {
+                    if (skipSafetyCheck) {
+                        this.highlightedMoves.push(move);
+                    } else {
+                        if (this.simulateMoveAndCheckSafety(piece, cx, cy, move.c, move.r)) {
+                            this.highlightedMoves.push(move);
+                        }
+                    }
+                }
+            }
+
+            onMouseDown(e) {
+                if (this.gameOver || this.isGenerating || this.promotionPending) return;
+                const w = this.screenToWorld(e.clientX, e.clientY);
+                const c = Math.floor(w.x / this.cellSize); const r = Math.floor(w.y / this.cellSize);
+                if (e.button === 0) {
+                    const piece = this.getPiece(c, r);
+                    if (piece) {
+                        if (this.turnModeEnabled && piece.c !== this.currentTurn) return;
+                        this.isDraggingPiece = true;
+                        this.draggedPiece = { data: piece, startC: c, startR: r };
+                        this.calculateHighlights(piece, c, r);
+                    } else { this.isDragging = true; this.lastMouse = { x: e.clientX, y: e.clientY }; }
+                } else if (e.button === 2) { if (this.turnModeEnabled) return; this.isPainting = true; this.tryPlacePiece(c, r); }
+            }
+
+            onMouseMove(e) {
+                this.mouse.x = e.clientX; this.mouse.y = e.clientY;
+                if (this.promotionPending) return;
+
+                if (this.isDragging) { this.camera.x += e.clientX - this.lastMouse.x; this.camera.y += e.clientY - this.lastMouse.y; this.lastMouse = { x: e.clientX, y: e.clientY }; this.clampCamera(); }
+                const w = this.screenToWorld(e.clientX, e.clientY); const c = Math.floor(w.x / this.cellSize); const r = Math.floor(w.y / this.cellSize);
+                if (this.isPainting) this.tryPlacePiece(c, r);
+                if (c >= 0 && c < this.boardSize && r >= 0 && r < this.boardSize) { const file = this.getFileLabel(c); const rank = this.boardSize - r; document.getElementById('coord').innerText = `${file}${rank}`; }
+            }
+
+            tryPlacePiece(c, r) { if(c >= 0 && c < this.boardSize && r >= 0 && r < this.boardSize) { if (this.curSymbol === 'delete') { this.removePiece(c, r); this.updateUI(); return; } this.setPiece(c, r, { s: this.curSymbol, c: this.curColor }); this.updateUI(); } }
+
+            onMouseUp(e) {
+                if (e.button === 2) this.isPainting = false;
+                if (this.promotionPending) return;
+
+                if (this.isDraggingPiece && this.draggedPiece) {
+                    const w = this.screenToWorld(e.clientX, e.clientY);
+                    const c = Math.floor(w.x / this.cellSize);
+                    const r = Math.floor(w.y / this.cellSize);
+
+                    let moveSuccessful = false;
+                    let turnEnded = true;
+
+                    if(c >= 0 && c < this.boardSize && r >= 0 && r < this.boardSize) {
+                        const isChecker = this.checkersSymbols.has(this.draggedPiece.data.s);
+                        let capturedMoveInfo = null;
+
+                        if (isChecker && this.rulesEnabled) {
+                             const legalMoves = this.generatePotentialMoves(this.draggedPiece.data, this.draggedPiece.startC, this.draggedPiece.startR);
+                             capturedMoveInfo = legalMoves.find(m => m.c === c && m.r === r);
+                        }
+
+                        let isValid = false;
+                        if (isChecker && this.rulesEnabled) isValid = !!capturedMoveInfo;
+                        else isValid = this.validateMove(this.draggedPiece.data, this.draggedPiece.startC, this.draggedPiece.startR, c, r);
+
+                        if (isValid) {
+                            let isMoveSafe = true;
+                            if (this.rulesEnabled && !isChecker) {
+                                isMoveSafe = this.simulateMoveAndCheckSafety(this.draggedPiece.data, this.draggedPiece.startC, this.draggedPiece.startR, c, r);
+                            }
+
+                            if (isMoveSafe) {
+                                // --- PROMOTION CHECK ---
+                                const isWhite = this.draggedPiece.data.c === 'w';
+                                const isPawn = this.draggedPiece.data.s === '♙' || this.draggedPiece.data.s === '♟';
+                                const promotionRow = isWhite ? 0 : this.boardSize - 1;
+
+                                if (isPawn && r === promotionRow && !isChecker) {
+                                    this.promotionPending = {
+                                        piece: this.draggedPiece.data,
+                                        startC: this.draggedPiece.startC,
+                                        startR: this.draggedPiece.startR,
+                                        endC: c,
+                                        endR: r,
+                                        capturedInfo: capturedMoveInfo
+                                    };
+                                    this.showPromotionDialog(this.draggedPiece.data.c);
+                                    this.draggedPiece = null;
+                                    this.isDraggingPiece = false;
+                                    this.highlightedMoves = [];
+                                    return;
+                                }
+
+                                const startCoord = this.getCoordString(this.draggedPiece.startC, this.draggedPiece.startR);
+                                const endCoord = this.getCoordString(c, r);
+                                const pieceIcon = this.draggedPiece.data.s;
+                                const isCap = (capturedMoveInfo && capturedMoveInfo.isCapture) || this.getPiece(c,r);
+
+                                // --- RECORD HISTORY (UPDATED) ---
+                                const historyStep = {
+                                    turn: this.currentTurn,
+                                    prevKingPos: { w: this.kingPos.w ? {...this.kingPos.w} : null, b: this.kingPos.b ? {...this.kingPos.b} : null },
+                                    multiJumpSource: this.multiJumpSource ? {...this.multiJumpSource} : null,
+                                    changes: [],
+                                    // ЗБЕРІГАЄМО ДАНІ ДЛЯ НОТАЦІЇ
+                                    notation: {
+                                        icon: pieceIcon,
+                                        start: startCoord,
+                                        end: endCoord,
+                                        cap: !!isCap
+                                    }
+                                };
+                                const recordState = (c, r) => {
+                                    const k = this.getKey(c, r);
+                                    const v = this.grid.get(k);
+                                    historyStep.changes.push({ key: k, value: v });
+                                };
+                                recordState(this.draggedPiece.startC, this.draggedPiece.startR);
+                                recordState(c, r);
+                                if (capturedMoveInfo && capturedMoveInfo.isCapture) {
+                                    recordState(capturedMoveInfo.captured.x, capturedMoveInfo.captured.y);
+                                }
+                                this.moveHistory.push(historyStep);
+                                // -------------------------------
+
+                                this.addLogToUI(pieceIcon, startCoord, endCoord, isCap);
+
+                                if (capturedMoveInfo && capturedMoveInfo.isCapture) {
+                                    this.removePiece(capturedMoveInfo.captured.x, capturedMoveInfo.captured.y);
+                                }
+
+                                this.removePiece(this.draggedPiece.startC, this.draggedPiece.startR);
+
+                                this.draggedPiece.data.x = c;
+                                this.draggedPiece.data.y = r;
+                                this.draggedPiece.data.hasMoved = true;
+
+                                if (isChecker) {
+                                    const promotionRowChecker = isWhite ? 0 : this.boardSize - 1;
+                                    if (r === promotionRowChecker) {
+                                        if (this.draggedPiece.data.s === '⛂') this.draggedPiece.data.s = '⛃';
+                                        if (this.draggedPiece.data.s === '⛀') this.draggedPiece.data.s = '⛁';
+                                    }
+                                }
+
+                                this.setPiece(c, r, this.draggedPiece.data);
+                                moveSuccessful = true;
+
+                                if (isChecker && capturedMoveInfo && capturedMoveInfo.isCapture) {
+                                    const moreCaptures = this.getCheckersMoves(this.draggedPiece.data, c, r, true);
+                                    if (moreCaptures.length > 0) {
+                                        this.multiJumpSource = { c: c, r: r };
+                                        turnEnded = false;
+                                    } else {
+                                        this.multiJumpSource = null;
+                                    }
+                                } else {
+                                    this.multiJumpSource = null;
+                                }
+
+                                if (turnEnded && (c !== this.draggedPiece.startC || r !== this.draggedPiece.startR)) {
+                                    setTimeout(() => this.switchTurn(), 0);
+                                }
+                            }
+                        }
+                    }
+
+                    this.draggedPiece = null;
+                    this.isDraggingPiece = false;
+                    if (turnEnded) this.highlightedMoves = [];
+                    this.updateUI();
+                }
+                this.isDragging = false;
+            }
+
+            showPromotionDialog(color) {
+                const overlay = document.getElementById('promotionOverlay');
+                const grid = document.getElementById('promotionGrid');
+                grid.innerHTML = '';
+
+                // Determine if we are in strict classic mode
+                const isClassicMode = this.virtualGen === 'classic';
+
+                PIECE_CATEGORIES.forEach(cat => {
+                    // Skip Tools and Checkers
+                    if (cat.name === "Інструменти" || cat.name === "Шашки") return;
+
+                    // IF CLASSIC MODE: Skip any category that isn't Classic
+                    if (isClassicMode && !cat.name.includes("Класика")) return;
+
+                    cat.items.forEach(item => {
+                        // Skip Kings, Pawns, and utility buttons
+                        if (['♔','♚','♙','♟','delete','eraser'].includes(item.s)) return;
+
+                        // If color specific category, ensure it matches
+                        if (cat.name.includes("Класика")) {
+                           if (color === 'w' && cat.name.includes("Чорні")) return;
+                           if (color === 'b' && cat.name.includes("Білі")) return;
+                        }
+
+                        const btn = document.createElement('button');
+                        btn.className = 'promo-btn';
+                        btn.innerText = item.s;
+                        btn.title = item.t;
+                        btn.onclick = () => this.finalizePromotion(item.s);
+                        grid.appendChild(btn);
+                    });
+                });
+
+                overlay.style.display = 'flex';
+            }
+
+            finalizePromotion(symbol) {
+                if (!this.promotionPending) return;
+
+                const pp = this.promotionPending;
+                const startCoord = this.getCoordString(pp.startC, pp.startR);
+                const endCoord = this.getCoordString(pp.endC, pp.endR);
+
+                // --- HISTORY ---
+                const historyStep = {
+                    turn: this.currentTurn,
+                    prevKingPos: { w: this.kingPos.w ? {...this.kingPos.w} : null, b: this.kingPos.b ? {...this.kingPos.b} : null },
+                    multiJumpSource: null,
+                    changes: []
+                };
+                const recordState = (c, r) => {
+                    const k = this.getKey(c, r);
+                    const v = this.grid.get(k);
+                    historyStep.changes.push({ key: k, value: v });
+                };
+                recordState(pp.startC, pp.startR);
+                recordState(pp.endC, pp.endR);
+                this.moveHistory.push(historyStep);
+                // --------------
+
+                // Execute logic
+                this.removePiece(pp.startC, pp.startR);
+
+                const newPieceData = {
+                    x: pp.endC,
+                    y: pp.endR,
+                    s: symbol,
+                    c: pp.piece.c,
+                    hasMoved: true
+                };
+
+                // Capture if needed
+                const target = this.getPiece(pp.endC, pp.endR);
+                const isCap = !!target;
+
+                this.setPiece(pp.endC, pp.endR, newPieceData);
+                this.addLogToUI(`${pp.piece.s}➞${symbol}`, startCoord, endCoord, isCap);
+
+                this.promotionPending = null;
+                document.getElementById('promotionOverlay').style.display = 'none';
+                this.updateUI();
+                this.switchTurn();
+            }
+
+            undoMove() {
+                if (this.moveHistory.length === 0) return;
+                const last = this.moveHistory.pop();
+
+                last.changes.forEach(change => {
+                    if (change.value === undefined) this.grid.delete(change.key);
+                    else this.grid.set(change.key, change.value);
+                });
+
+                this.currentTurn = last.turn;
+                this.kingPos = last.prevKingPos;
+                this.multiJumpSource = last.multiJumpSource;
+                this.gameOver = false;
+                this.promotionPending = null;
+                document.getElementById('promotionOverlay').style.display = 'none';
+                document.getElementById('gameOverOverlay').style.display = 'none';
+
+                this.removeLastLogEntry();
+
+                this.highlightedMoves = [];
+                this.updateTurnIndicator();
+                this.updateUI();
+            }
+
+            onKeyDown(e) {
+                if (this.gameOver || this.turnModeEnabled || this.promotionPending) return;
+                if (e.key === 'Delete') {
+                    // Default delete key behavior is now Undo via main listener
+                } else if (e.shiftKey && e.key === 'Delete') {
+                    // Eraser tool
+                    const w = this.screenToWorld(this.mouse.x, this.mouse.y);
+                    const c = Math.floor(w.x / this.cellSize);
+                    const r = Math.floor(w.y / this.cellSize);
+                    this.removePiece(c, r);
+                    this.updateUI();
+                }
+            }
+
+            screenToWorld(sx, sy) { return { x: (sx - this.camera.x) / this.camera.zoom, y: (sy - this.camera.y) / this.camera.zoom }; }
+
+            update() {
+                const moveSpeed = 15;
+                if (this.keys.ArrowLeft) this.camera.x += moveSpeed;
+                if (this.keys.ArrowRight) this.camera.x -= moveSpeed;
+                if (this.keys.ArrowUp) this.camera.y += moveSpeed;
+                if (this.keys.ArrowDown) this.camera.y -= moveSpeed;
+
+                if (Math.abs(this.camera.zoom - this.targetZoom) > 0.0000001) {
+                    const oldZoom = this.camera.zoom; this.camera.zoom += (this.targetZoom - this.camera.zoom) * this.lerpFactor;
+                    const factor = this.camera.zoom / oldZoom;
+                    this.camera.x = this.mouse.x - (this.mouse.x - this.camera.x) * factor; this.camera.y = this.mouse.y - (this.mouse.y - this.camera.y) * factor;
+                    this.clampCamera(); document.getElementById('zoomSlider').value = Math.log10(this.camera.zoom);
+                    let disp = Math.round(this.camera.zoom * 100) + '%';
+                    if(this.camera.zoom < 0.01) disp = this.camera.zoom.toExponential(2);
+                    document.getElementById('zoomDisplay').innerText = disp;
+                }
+            }
+
+            render() {
+                const ctx = this.ctx;
+                const width = this.canvas.width; const height = this.canvas.height;
+                const cs = this.cellSize * this.camera.zoom;
+
+                // 1. Очищення екрану (ПОВЕРНУВ ОРИГІНАЛЬНИЙ КОЛІР)
+                ctx.fillStyle = this.colors.void;
+                ctx.fillRect(0, 0, width, height);
+
+                const bx = this.camera.x; const by = this.camera.y;
+                const startCol = Math.max(0, Math.floor((-this.camera.x) / cs));
+                const endCol = Math.min(this.boardSize, Math.floor((width - this.camera.x) / cs) + 1);
+                const startRow = Math.max(0, Math.floor((-this.camera.y) / cs));
+                const endRow = Math.min(this.boardSize, Math.floor((height - this.camera.y) / cs) + 1);
+                const boardPixelW = this.boardSize * cs; const boardPixelH = this.boardSize * cs;
+
+                // 2. МАЛЮВАННЯ ДОШКИ
+                if (bx < width && by < height && bx + boardPixelW > 0 && by + boardPixelH > 0) {
+
+                     // Базовий фон дошки
+                     ctx.fillStyle = this.colors.light;
+                     ctx.fillRect(Math.max(bx, 0), Math.max(by, 0), Math.min(boardPixelW, width), Math.min(boardPixelH, height));
+
+                     ctx.fillStyle = this.colors.dark;
+
+                     if (cs > 0.8) {
+                         // === БЛИЗЬКО: Реальна сітка ===
+                         ctx.beginPath();
+                         const gridSkip = (cs < 2) ? 2 : 1;
+                         for (let r = startRow; r < endRow; r += gridSkip) {
+                             let c = startCol;
+                             // --- ВИПРАВЛЕННЯ: ІНВЕРСІЯ КОЛЬОРІВ ---
+                             if ((r % 2) !== 0) {
+                                if (c % 2 !== 0) c++; // Якщо ряд непарний, починаємо з непарного (щоб намалювати на парному)
+                             } else {
+                                if (c % 2 === 0) c++; // Якщо ряд парний, починаємо з парного (щоб намалювати на непарному)
+                             }
+                             // ----------------------------------------
+                             for (; c < endCol; c += 2) {
+                                 ctx.rect((bx + c * cs) | 0, (by + r * cs) | 0, Math.ceil(cs), Math.ceil(cs));
+                             }
+                         }
+                         ctx.fill();
+                     } else {
+                         // === ДАЛЕКО: Тонування ===
+                         // Це важливо: накладаємо напівпрозорий темний шар.
+                         // Тепер дошка буде виглядати темнішою за оригінальний фон, і ви її чітко побачите.
+                         ctx.globalAlpha = 0.5;
+                         ctx.fillRect(Math.max(bx, 0), Math.max(by, 0), Math.min(boardPixelW, width), Math.min(boardPixelH, height));
+                         ctx.globalAlpha = 1.0;
+                     }
+
+                     // Рамка
+                     ctx.strokeStyle = this.colors.border;
+                     ctx.lineWidth = Math.max(2, cs * 0.1);
+                     ctx.strokeRect(bx, by, boardPixelW, boardPixelH);
+                }
+
+                // 3. Підсвітка (Шах/Мат)
+                if (this.rulesEnabled && cs > 2) {
+                    for (const color of ['w', 'b']) {
+                        if (this.kingsInCheck[color]) {
+                            const k = this.kingsInCheck[color];
+                            ctx.fillStyle = (this.gameOver && this.currentTurn === color)
+                                ? this.colors.mateHighlight : this.colors.checkHighlight;
+                            if (k.c >= startCol && k.c < endCol && k.r >= startRow && k.r < endRow) {
+                                ctx.fillRect(bx + k.c * cs, by + k.r * cs, cs, cs);
+                            }
+                        }
+                    }
+                }
+
+                // 4. Підсвітка ходів
+                if (this.highlightedMoves.length > 0) {
+                    const dotSize = Math.max(cs * 0.3, 2);
+                    ctx.fillStyle = this.colors.highlight;
+                    ctx.beginPath();
+                    for (const move of this.highlightedMoves) {
+                        if (move.c < startCol || move.c >= endCol || move.r < startRow || move.r >= endRow) continue;
+                        const hx = bx + move.c * cs + cs/2;
+                        const hy = by + move.r * cs + cs/2;
+                        ctx.moveTo(hx, hy);
+                        ctx.arc(hx, hy, dotSize, 0, Math.PI * 2);
+                    }
+                    ctx.fill();
+                }
+
+                // 5. Координати
+                if (cs > 25) {
+                    const fontSize = Math.max(cs * 0.25, 12); ctx.font = `bold ${fontSize}px Arial`;
+                    ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; const labelX = bx - 5;
+                    for(let r = startRow; r < endRow; r++) {
+                        const rankVal = this.boardSize - r; const labelY = by + r*cs + cs/2;
+                        if(labelY > 0 && labelY < height) { ctx.fillStyle = '#ccc'; ctx.fillText(rankVal.toString(), labelX, labelY); }
+                    }
+                    ctx.textAlign = 'center'; ctx.textBaseline = 'top'; const labelYBottom = by + this.boardSize*cs + 5;
+                    for(let c = startCol; c < endCol; c++) {
+                        const labelXPos = bx + c*cs + cs/2;
+                        if(labelXPos > 0 && labelXPos < width) { ctx.fillStyle = '#ccc'; ctx.fillText(this.getFileLabel(c), labelXPos, labelYBottom); }
+                    }
+                }
+
+                // --- 6. ФІГУРИ (Чіткі іконки) ---
+                const visibleCellsW = endCol - startCol;
+                const visibleCellsH = endRow - startRow;
+                const totalVisible = visibleCellsW * visibleCellsH;
+
+                let skip = 1;
+                if (totalVisible > 50000) skip = Math.ceil(Math.sqrt(totalVisible / 50000));
+
+                const minDrawSize = 12;
+                const drawSize = Math.max(cs, minDrawSize);
+
+                const useLowRes = true;
+
+                for (let r = startRow; r < endRow; r += skip) {
+                    for (let c = startCol; c < endCol; c += skip) {
+                        if (this.isDraggingPiece && this.draggedPiece && this.draggedPiece.startC === c && this.draggedPiece.startR === r) continue;
+
+                        const piece = this.getPiece(c, r);
+                        if (!piece) continue;
+
+                        const px = (bx + c * cs + cs/2) | 0;
+                        const py = (by + r * cs + cs/2) | 0;
+
+                        const sprite = this.getLowResSprite(piece.s, piece.c);
+                        ctx.drawImage(sprite, px - drawSize/2, py - drawSize/2, drawSize, drawSize);
+                    }
+                }
+
+                if (this.isDraggingPiece && this.draggedPiece) {
+                    this.drawPiece(ctx, this.draggedPiece.data, this.mouse.x | 0, this.mouse.y | 0, Math.max(cs, 40));
+                }
+            }
+
+            drawPiece(ctx, pieceData, x, y, size) {
+                const sprite = this.getPieceSprite(pieceData.s, pieceData.c);
+                const drawSize = size * 0.85;
+                ctx.drawImage(sprite, (x - drawSize/2) | 0, (y - drawSize/2) | 0, drawSize | 0, drawSize | 0);
+            }
+
+            updateUI() {
+                if (this.virtualGen) {
+                    document.getElementById('count').innerText = "Infinite";
+                } else {
+                    document.getElementById('count').innerText = this.grid.size;
+                }
+            }
+
+            animate() {
+                const now = performance.now();
+                if (Math.random() < 0.05) document.getElementById('fps').innerText = Math.round(1000 / (now - this.renderTime || 16));
+                this.renderTime = now;
+                this.update();
+                this.render();
+                requestAnimationFrame(() => this.animate());
+            }
+        }
+
+        const game = new SmoothChess();
+    </script>
+</body>
+</html>
