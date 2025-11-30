@@ -933,40 +933,66 @@ const megaDefs = {
             }
 
             generateProceduralPiece(c, relativeRow, color, height) {
-                // King Safety: Always King at middle column, back rank
-                const kingCol = Math.floor(this.boardSize / 2);
-                if (c === kingCol && relativeRow === 0) {
-                    return { x: c, y: -1, s: color === 'b' ? '♚' : '♔', c: color };
+                // 1. Визначаємо центр для Короля (безпека)
+                let armyCenterCol = Math.floor(this.boardSize / 2);
+
+                if (this.virtualGen === '3player') {
+                    if (color === 'b') armyCenterCol = Math.floor((this.boardSize / 2) / 2);
+                    else if (color === 'r') {
+                        const mid = Math.floor(this.boardSize / 2);
+                        armyCenterCol = mid + Math.floor((this.boardSize - mid) / 2);
+                    }
                 }
 
-                // Pawns: Front line (normalized row = height - 1)
+                // Завжди ставимо "головного" короля по центру (для логіки гри)
+                if (c === armyCenterCol && relativeRow === 0) {
+                    return { x: c, y: -1, s: color === 'w' ? '♔' : '♚', c: color };
+                }
+                
+                // --- НОВА ЛОГІКА ДЛЯ АРМІЇ (Щоб не зависало) ---
+                if (this.virtualGen === 'army') {
+                    // Половина рядів - офіцери, половина - пішаки
+                    const officerRows = Math.floor(height / 2);
+                    
+                    // Якщо це передні ряди - ставимо Пішаків
+                    if (relativeRow >= officerRows) {
+                         return { x: c, y: -1, s: color === 'w' ? '♙' : '♟', c: color };
+                    }
+                    
+                    // Якщо це задні ряди - ставимо патерн Офіцерів
+                    const pattern = ['♖', '♘', '♗', '♕', '♔', '♗', '♘', '♖'];
+                    const mirrorMap = { '♖':'♜', '♘':'♞', '♗':'♝', '♕':'♛', '♔':'♚' };
+                    
+                    let sym = pattern[c % 8]; // Повторення кожні 8 клітинок
+                    if (color !== 'w') sym = mirrorMap[sym]; // Для чорних/червоних
+                    
+                    return { x: c, y: -1, s: sym, c: color };
+                }
+                // -----------------------------------------------
+
+                // Стандартні пішаки для інших режимів (Classic/Fantasy)
                 if (relativeRow === height - 1) {
-                    return { x: c, y: -1, s: color === 'b' ? '♟' : '♙', c: color };
+                    return { x: c, y: -1, s: color === 'w' ? '♙' : '♟', c: color };
                 }
 
+                // Логіка для Classic/Fantasy (Random)
                 const classicMajors = ['♖', '♘', '♗', '♕'];
                 const mirrorMap = { '♖': '♜', '♘': '♞', '♗': '♝', '♕': '♛' };
                 const fantasyMajors = ['🦄', '🦅', '🐲', '🕷️', '🐢', '🧨', '🐫', '🦓', '🦒', '🐘', '🚜', '⚔️', '🛡️', '👨', '🦗', '🦇', '🏹', '🐻', '🐕', '🦀', '🐆', '🐿️', '🤴', '👼', '👺', '🍄', '🌵', '🌲', '🍁', '🌋', '🌊', '🌪️', '🌩️', '🦂', '🐍', '🦖', '🦈', '🐝', '🦋', '🐙', '👾', '🗡️', '🔮', '📜', '💍', '⚗️', '💣', '🧩', '🎲', '🧬', '⚛️', ...Object.keys(megaDefs)];
-
-                // Use seed based on COLUMN and RELATIVE_ROW.
+                
                 const seed = c * 49297 + relativeRow * 9301 + this.generationSeed;
                 const rnd = Math.abs(Math.sin(seed) * 10000) % 100;
-
                 let symbol;
 
                 if (this.virtualGen === 'fantasy' && rnd < this.virtualProps.mix) {
-                    // Fantasy Piece
                     const idx = Math.floor(this.pseudoRandom(c + this.generationSeed, relativeRow * 5) * fantasyMajors.length);
                     symbol = fantasyMajors[idx];
                 } else {
-                    // Classic Piece
                     const idx = Math.floor(this.pseudoRandom(c + this.generationSeed, relativeRow * 7) * classicMajors.length);
                     let base = classicMajors[idx];
-                    // Apply color mapping for Classic
-                    if (color === 'b') symbol = mirrorMap[base];
+                    if (color !== 'w') symbol = mirrorMap[base];
                     else symbol = base;
                 }
-
                 return { x: c, y: -1, s: symbol, c: color };
             }
 
@@ -1070,52 +1096,19 @@ const megaDefs = {
                 this.updateUI();
             }
             fillArmy() {
-                this.resetGame();
-                this.virtualGen = null;
-
-                // 1. Отримуємо % заповнення з інпуту
+                // Отримуємо відсоток заповнення
                 let percent = parseFloat(document.getElementById('fillPercent').value);
-                if (isNaN(percent) || percent < 1) percent = 1;
-                if (percent > 50) percent = 50; // Обмеження до 50%, щоб білі не налізли на чорних
+                if (isNaN(percent) || percent < 1) percent = 1; 
+                if (percent > 50) percent = 50;
 
-                // 2. Обчислюємо глибину армії
-                // Наприклад, дошка 100, 10% -> 10 рядів.
-                // Мінімум 2 ряди, щоб була хоч 1 лінія офіцерів і 1 пішаків.
-                let armyDepth = Math.floor(this.boardSize * (percent / 100));
-                if (armyDepth < 2) armyDepth = 2;
-
-                // 3. Визначаємо, скільки рядів віддати під Офіцерів
-                // Зберігаємо пропорцію 50/50, як у попередньому запиті (2 ряди офіцерів, 2 пішаків)
-                const officerRowsCount = Math.floor(armyDepth / 2);
-
-                const width = this.boardSize;
-                const pattern = ['♖', '♘', '♗', '♕', '♔', '♗', '♘', '♖'];
-                const blackMirror = { '♖':'♜', '♘':'♞', '♗':'♝', '♕':'♛', '♔':'♚', '♙':'♟' };
-
-                for (let r = 0; r < armyDepth; r++) {
-                    const wRow = (this.boardSize - 1) - r; // Білі знизу
-                    const bRow = r;                        // Чорні зверху
-
-                    for (let c = 0; c < width; c++) {
-                        let wSym;
-
-                        // Якщо це "глибинні" ряди (індекс менший за кількість рядів офіцерів) -> ставимо Офіцерів
-                        if (r < officerRowsCount) {
-                            wSym = pattern[c % 8];
-                        } else {
-                            // Всі передні ряди -> Пішаки
-                            wSym = '♙';
-                        }
-
-                        let bSym = blackMirror[wSym] || wSym;
-
-                        this.setPiece(c, wRow, { s: wSym, c: 'w' });
-                        this.setPiece(c, bRow, { s: bSym, c: 'b' });
-                    }
-                }
-
+                this.resetGame();
+                
+                // ВМИКАЄМО ВІРТУАЛЬНУ ГЕНЕРАЦІЮ ЗАМІСТЬ ЦИКЛУ
+                this.virtualGen = 'army'; 
+                this.virtualProps.percent = percent;
+                
                 this.updateUI();
-                console.log(`Army Mode: Depth ${armyDepth} (${officerRowsCount} Officers / ${armyDepth - officerRowsCount} Pawns)`);
+                console.log("Mode: Army (Optimized/Virtual)");
             }
             fillChess960() {
                 this.resetGame();
