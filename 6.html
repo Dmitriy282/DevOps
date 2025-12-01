@@ -1559,6 +1559,7 @@ getVirtualPiece(c, r) {
 
             saveGame() {
                 const pieces = [];
+                // Зберігаємо лише змінені фігури (ті, що у grid)
                 for (const [key, val] of this.grid) {
                     const coord = key.split(',').map(Number);
                     if (val === GRID_VOID) {
@@ -1568,20 +1569,24 @@ getVirtualPiece(c, r) {
                     const id = val & 0xFFFF;
                     const hasMoved = !!((val >> 16) & 1);
                     const p = this.palette[id - 1];
-                    pieces.push({
-                        x: coord[0], y: coord[1], s: p.s, c: p.c, m: hasMoved ? 1 : 0
-                    });
+                    // Перевірка на існування, щоб уникнути помилок
+                    if (p) {
+                        pieces.push({
+                            x: coord[0], y: coord[1], s: p.s, c: p.c, m: hasMoved ? 1 : 0
+                        });
+                    }
                 }
 
                 const saveData = {
-                    format: "MegaChess_v4_History", // Оновлена версія формату
+                    format: "MegaChess_v5_Full", // Оновлений формат
                     timestamp: Date.now(),
                     boardSize: this.boardSize,
                     turn: this.currentTurn,
                     virtualGen: this.virtualGen,
                     virtualProps: this.virtualProps,
                     generationSeed: this.generationSeed,
-                    moveHistory: this.moveHistory, // <-- ДОДАНО ЦЕ
+                    moveHistory: this.moveHistory,
+                    palette: this.palette, // ВАЖЛИВО: Зберігаємо палітру для коректності історії
                     pieces: pieces
                 };
 
@@ -1614,11 +1619,16 @@ getVirtualPiece(c, r) {
             }
 
             applyLoadedData(data) {
+                // Повне очищення перед завантаженням
                 this.grid.clear();
                 this.moveHistory = [];
                 this.kingsInCheck = { w: null, b: null };
                 this.kingPos = { w: null, b: null };
                 this.promotionPending = null;
+                
+                // Очищуємо палітру, щоб синхронізувати ID з збереженим файлом
+                this.palette = [];
+                this.paletteMap.clear();
 
                 if (data.boardSize) {
                     document.getElementById('boardSize').value = data.boardSize;
@@ -1631,7 +1641,16 @@ getVirtualPiece(c, r) {
 
                 this.currentTurn = data.turn || 'w';
 
-                // 1. Відновлення фігур
+                // 1. Відновлення ПАЛІТРИ (Критично для коректної роботи історії та Undo/Redo)
+                if (Array.isArray(data.palette)) {
+                    this.palette = data.palette;
+                    // Відбудовуємо мапу для швидкого пошуку
+                    this.palette.forEach((p, index) => {
+                        this.paletteMap.set(p.s + p.c, index + 1);
+                    });
+                }
+
+                // 2. Відновлення фігур на дошці
                 if (Array.isArray(data.pieces)) {
                     data.pieces.forEach(p => {
                         if (p.x >= 0 && p.x < this.boardSize && p.y >= 0 && p.y < this.boardSize) {
@@ -1644,42 +1663,24 @@ getVirtualPiece(c, r) {
                     });
                 }
 
-                // 2. Відновлення історії та відображення в лозі
-                const logList = document.getElementById('logList');
-                logList.innerHTML = ''; // Очищуємо лог перед заповненням
+                // 3. Відновлення історії та логу
+                const logList = document.getElementById('logTableBody'); // Використовуємо правильний ID таблиці
+                if (logList) logList.innerHTML = ''; 
 
                 if (data.moveHistory && Array.isArray(data.moveHistory)) {
                     this.moveHistory = data.moveHistory;
-
-                    // Проходимо по історії і додаємо в UI
-                    // Важливо: addLogToUI додає зверху (prepend), тому проходимо масив від початку до кінця
-                    this.moveHistory.forEach(step => {
-                        if (step.notation) {
-                            this.addLogToUI(
-                                step.notation.icon,
-                                step.notation.start,
-                                step.notation.end,
-                                step.notation.cap
-                            );
-                        }
-                    });
-                } else {
-                    // Якщо історії немає (старий файл), показуємо заглушку
-                    logList.innerHTML = '<div class="log-entry" style="color:#999; justify-content:center;">Ходів ще немає (Або файл без історії)</div>';
+                    this.updateLogUI(); // Оновлюємо таблицю ходів
                 }
 
                 this.updateTurnIndicator();
                 this.centerBoard();
                 this.updateUI();
 
-                // Системне повідомлення в лог про успішне завантаження
-                const div = document.createElement('div');
-                div.className = 'log-entry';
-                div.style.color = 'green';
-                div.style.background = '#e8f5e9';
-                div.innerText = `📂 Файл завантажено успішно`;
-                logList.prepend(div);
+                console.log("📂 Гра успішно завантажена з повною палітрою.");
             }
+
+                // Системне повідомлення в лог про успішне завантаження
+               
 
             getFileLabel(index) { let label = ""; index++; while (index > 0) { let rem = (index - 1) % 26; label = String.fromCharCode(97 + rem) + label; index = Math.floor((index - 1) / 26); } return label; }
             isPathClear(c1, r1, c2, r2) { const dx = Math.sign(c2 - c1); const dy = Math.sign(r2 - r1); let x = c1 + dx; let y = r1 + dy; while (x !== c2 || y !== r2) { if (this.getPiece(x,y)) return false; x += dx; y += dy; } return true; }
