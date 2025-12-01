@@ -552,7 +552,14 @@ const megaDefs = {
                 this.isPainting = false;
                 this.isGenerating = false;
 
+                this.isPainting = false;
+                this.isGenerating = false;
+
                 this.customArrows = []; // Масив стрілок
+                this.rmbStart = null;   // Точка початку малювання
+                this.previewArrow = null; // <--- ДОДАТИ ЦЕЙ РЯДОК (Тимчасова стрілка)
+                // --- PROMOTION STATE ---
+                this.promotionPending = null;// Масив стрілок
                 this.rmbStart = null;   // Точка початку малювання
                 // --- PROMOTION STATE ---
                 this.promotionPending = null;
@@ -2735,9 +2742,28 @@ switchTurn() {
                     }
                 }
             }
-            onMouseMove(e) {
+           onMouseMove(e) {
                 this.mouse.x = e.clientX; this.mouse.y = e.clientY;
                 if (this.promotionPending) return;
+
+                const w = this.screenToWorld(e.clientX, e.clientY); 
+                const c = Math.floor(w.x / this.cellSize); 
+                const r = Math.floor(w.y / this.cellSize);
+
+                // --- ЛОГІКА МАЛЮВАННЯ СТРІЛКИ (REAL-TIME) ---
+                if (this.rmbStart) {
+                    const endC = Math.max(0, Math.min(this.boardSize - 1, c));
+                    const endR = Math.max(0, Math.min(this.boardSize - 1, r));
+
+                    // Якщо мишку відвели від стартової клітинки, створюємо прев'ю
+                    if (this.rmbStart.c !== endC || this.rmbStart.r !== endR) {
+                        this.previewArrow = { sx: this.rmbStart.c, sy: this.rmbStart.r, ex: endC, ey: endR };
+                    } else {
+                        this.previewArrow = null;
+                    }
+                    // Примусове оновлення екрану без повного перерахунку UI
+                    // (викликаємо render у циклі animate, тому просто чекаємо наступного кадру)
+                }
 
                 // 1. Логіка переміщення камери (тепер працює від ЛКМ)
                 if (this.isDragging) { 
@@ -2753,10 +2779,6 @@ switchTurn() {
                     this.clampCamera(); 
                 }
                 
-                const w = this.screenToWorld(e.clientX, e.clientY); 
-                const c = Math.floor(w.x / this.cellSize); 
-                const r = Math.floor(w.y / this.cellSize);
-
                 // 2. Логіка малювання фігур (редактор)
                 if (this.isPainting) this.tryPlacePiece(c, r);
 
@@ -2785,6 +2807,7 @@ switchTurn() {
                         else this.customArrows.push(newArrow);
                     }
                     this.rmbStart = null; 
+                    this.previewArrow = null; // <--- ДОДАНО: Очищуємо прев'ю
                     this.updateUI(); 
                     return;
                 }
@@ -3001,7 +3024,13 @@ switchTurn() {
             }
 
             drawCustomArrows(ctx, cs, bx, by) {
-                if (!this.customArrows.length) return;
+                // Об'єднуємо постійні стрілки з тимчасовою (якщо вона є) для малювання
+                let arrowsToDraw = [...this.customArrows];
+                if (this.previewArrow) {
+                    arrowsToDraw.push(this.previewArrow);
+                }
+
+                if (!arrowsToDraw.length) return;
 
                 ctx.save();
                 
@@ -3013,7 +3042,7 @@ switchTurn() {
                 const headLen = cs * 0.35;    // Довжина голови
                 const headWidth = cs * 0.45;  // Ширина голови
 
-                this.customArrows.forEach(arrow => {
+                arrowsToDraw.forEach(arrow => {
                     const startX = bx + arrow.sx * cs + cs / 2;
                     const startY = by + arrow.sy * cs + cs / 2;
                     const endX = bx + arrow.ex * cs + cs / 2;
@@ -3027,8 +3056,7 @@ switchTurn() {
                     // Якщо стрілка занадто коротка, не малюємо
                     if (len < cs * 0.2) return;
 
-                    // Відступ назад, щоб вістря було точно в центрі клітинки,
-                    // але візуально не перекривало фігуру повністю (опціонально)
+                    // Відступ назад, щоб вістря було точно в центрі клітинки
                     const adjustedLen = len - (cs * 0.05);
 
                     ctx.save();
@@ -3036,30 +3064,15 @@ switchTurn() {
                     ctx.translate(startX, startY);
                     ctx.rotate(angle);
 
-                    // Малюємо стрілку як єдиний контур (щоб не було накладання кольорів)
+                    // Малюємо стрілку
                     ctx.beginPath();
-                    
-                    // 1. Початок хвоста (верх)
                     ctx.lineTo(0, -lineWidth / 2);
-                    
-                    // 2. Кінець хвоста перед головою (верх)
                     ctx.lineTo(adjustedLen - headLen, -lineWidth / 2);
-                    
-                    // 3. Виступ голови (верх)
                     ctx.lineTo(adjustedLen - headLen, -headWidth / 2);
-                    
-                    // 4. Вістря
                     ctx.lineTo(adjustedLen, 0);
-                    
-                    // 5. Виступ голови (низ)
                     ctx.lineTo(adjustedLen - headLen, headWidth / 2);
-                    
-                    // 6. Кінець хвоста перед головою (низ)
                     ctx.lineTo(adjustedLen - headLen, lineWidth / 2);
-                    
-                    // 7. Початок хвоста (низ)
                     ctx.lineTo(0, lineWidth / 2);
-                    
                     ctx.closePath();
                     ctx.fill();
                     
