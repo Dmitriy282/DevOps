@@ -31,8 +31,27 @@
             background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(4px);
             color: #333; padding: 8px 25px; border-radius: 50px; font-size: 20px;
             font-weight: bold; border: 1px solid rgba(0,0,0,0.1);
-            box-shadow: 0 4px 10px rgba(0,0,0,0.1); pointer-events: none;
-            display: flex; align-items: center; gap: 10px; transition: 0.3s; z-index: 10;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1); 
+            /* Важливо: робимо кнопку клікабельною і поверх всього */
+            pointer-events: auto; 
+            cursor: pointer; 
+            user-select: none;
+            display: flex; align-items: center; gap: 10px; transition: 0.2s; 
+            z-index: 20; /* Підняли вище меню */
+        }
+        #turnIndicator:hover {
+            transform: translateX(-50%) scale(1.05);
+            box-shadow: 0 6px 15px rgba(0,0,0,0.2);
+        }
+        #turnIndicator:active {
+            transform: translateX(-50%) scale(0.95);
+        }
+        /* Підказка */
+        #turnIndicator::after {
+            content: "⇄";
+            font-size: 18px;
+            margin-left: 5px;
+            opacity: 0.5;
         }
 
         #loadingOverlay {
@@ -859,6 +878,7 @@ const megaDefs = {
                 document.getElementById('fantasyMix').addEventListener('input', (e) => {
                     document.getElementById('fantasyPercentDisplay').innerText = e.target.value + '%';
                 });
+                document.getElementById('turnIndicator').addEventListener('click', () => this.toggleTurnColor());
 
                 this.lastTime = performance.now();
                 this.animate();
@@ -1925,10 +1945,27 @@ findKing(color) {
                 return null;
             }
             
-            endGame() {
+           endGame(title = "МАТ!") {
                 this.gameOver = true;
+                
+                // Визначаємо переможця (той, хто зробив попередній хід)
+                // Якщо зараз хід 'w' і ходів немає -> виграли Чорні.
                 const winner = this.currentTurn === 'w' ? "Чорні" : "Білі";
-                const icon = this.currentTurn === 'w' ? "♚" : "♔";
+                
+                let icon = "";
+                
+                if (this.virtualGen === 'checkers') {
+                    // Якщо шашки: показуємо шашку переможця
+                    // Якщо виграли Чорні -> Чорна шашка, інакше Біла
+                    icon = this.currentTurn === 'w' ? "⛂" : "⛀"; 
+                } else {
+                    // Якщо шахи: показуємо короля переможця
+                    icon = this.currentTurn === 'w' ? "♚" : "♔";
+                }
+                
+                const titleEl = document.querySelector('.victory-card h1');
+                if (titleEl) titleEl.innerText = title;
+
                 document.getElementById('winnerTxt').innerText = `Перемога: ${winner}`;
                 document.getElementById('winnerIcon').innerText = icon;
                 document.getElementById('gameOverOverlay').style.display = 'flex';
@@ -1940,43 +1977,95 @@ findKing(color) {
                 document.getElementById('winnerIcon').innerText = "🤝"; // Іконка рукостискання
                 document.getElementById('gameOverOverlay').style.display = 'flex';
             }
+            // Метод для ручної зміни сторони (Режим Редактора)
+            toggleTurnColor() {
+                // Міняємо сторону
+                this.currentTurn = this.currentTurn === 'w' ? 'b' : 'w';
+                
+                // Скидаємо прапор "Кінець гри", щоб можна було дограти або виправити ситуацію
+                this.gameOver = false;
+                document.getElementById('gameOverOverlay').style.display = 'none';
 
-            switchTurn() {
-                // Якщо режим ходів вимкнено, ми не перемикаємо чергу
+                // Оновлюємо перевірку шахів для нової сторони
+                if (this.virtualGen !== 'checkers') {
+                    this.kingsInCheck.w = this.isInCheck('w') ? this.findKing('w') : null;
+                    this.kingsInCheck.b = this.isInCheck('b') ? this.findKing('b') : null;
+                }
+
+                // Оновлюємо інтерфейс
+                this.updateTurnIndicator();
+                
+                // Додаємо запис в лог про зміну черги (опціонально, щоб було видно в історії)
+                const logList = document.getElementById('logList'); // Якщо ви використовуєте стару структуру
+                // Або просто в консоль, щоб не засмічувати лог ходів
+                console.log(`Чергу змінено на: ${this.currentTurn === 'w' ? 'Білі' : 'Чорні'}`);
+            }
+switchTurn() {
                 if (!this.turnModeEnabled) return;
 
-                // 1. Змінюємо сторону (w -> b, b -> w)
                 this.currentTurn = this.currentTurn === 'w' ? 'b' : 'w';
 
-                // 2. Оновлюємо статус шаху для обох сторін
-                // Це важливо, щоб індикатор показав "ШАХ", якщо новий гравець під атакою
-                this.kingsInCheck.w = this.isInCheck('w') ? this.findKing('w') : null;
-                this.kingsInCheck.b = this.isInCheck('b') ? this.findKing('b') : null;
+                // Оновлення статусу шаху (тільки для шахів)
+                if (this.virtualGen !== 'checkers') {
+                    this.kingsInCheck.w = this.isInCheck('w') ? this.findKing('w') : null;
+                    this.kingsInCheck.b = this.isInCheck('b') ? this.findKing('b') : null;
+                } else {
+                    this.kingsInCheck = { w: null, b: null };
+                }
 
-                // 3. Оновлюємо візуальний індикатор зверху
                 this.updateTurnIndicator();
 
-                // 4. (Опціонально) Перевірка на мат
-                // Оскільки це "Mega Chess" з мільйонами клітинок, повний перерахунок мату 
-                // може бути повільним, тому поки що залишаємо лише візуальний шах.
+                // Запускаємо перевірку з затримкою, щоб браузер встиг намалювати хід
+                setTimeout(() => {
+                    // Якщо у поточного гравця немає ходів...
+                    if (!this.hasAnyLegalMoves(this.currentTurn)) {
+                        
+                        if (this.virtualGen === 'checkers') {
+                             this.endGame("ПЕРЕМОГА!"); 
+                        } 
+                        else {
+                            if (this.kingsInCheck[this.currentTurn]) {
+                                this.endGame("МАТ!"); 
+                            } else {
+                                this.showStalemate(); 
+                            }
+                        }
+                    }
+                }, 20);
             }
             
             updateTurnIndicator() {
                 const ind = document.getElementById('turnIndicator');
                 const txt = document.getElementById('turnText');
                 const icon = document.getElementById('turnIcon');
-                if (!this.turnModeEnabled) { ind.style.display = 'none'; return; }
+                
+                // ЗАВЖДИ показуємо індикатор, навіть якщо режим ходів вимкнено
                 ind.style.display = 'flex';
-                if (this.currentTurn === 'w') {
-                    ind.style.background = 'rgba(255, 255, 255, 0.9)'; ind.style.color = '#000';
-                    ind.style.borderColor = (this.kingsInCheck.w) ? 'red' : '#000';
-                    txt.innerText = (this.kingsInCheck.w) ? "Хід: Білі (ШАХ!)" : "Хід: Білі";
-                    icon.innerText = "♔";
+                
+                if (!this.turnModeEnabled) {
+                    // --- РЕЖИМ РЕДАКТОРА (Жовтий) ---
+                    ind.style.background = '#f1c40f'; 
+                    ind.style.color = '#000';
+                    ind.style.borderColor = '#f39c12';
+                    // Показуємо, чий буде хід, коли гру запустять
+                    const label = this.currentTurn === 'w' ? "Білі" : "Чорні";
+                    txt.innerText = `Редактор (${label})`;
+                    icon.innerText = this.currentTurn === 'w' ? "♔" : "♚";
                 } else {
-                    ind.style.background = 'rgba(0, 0, 0, 0.9)'; ind.style.color = '#fff';
-                    ind.style.borderColor = (this.kingsInCheck.b) ? 'red' : '#fff';
-                    txt.innerText = (this.kingsInCheck.b) ? "Хід: Чорні (ШАХ!)" : "Хід: Чорні";
-                    icon.innerText = "♚";
+                    // --- РЕЖИМ ГРИ ---
+                    if (this.currentTurn === 'w') {
+                        ind.style.background = 'rgba(255, 255, 255, 0.95)'; 
+                        ind.style.color = '#000';
+                        ind.style.borderColor = (this.kingsInCheck.w) ? 'red' : '#ccc';
+                        txt.innerText = (this.kingsInCheck.w) ? "Хід: Білі (ШАХ!)" : "Хід: Білі";
+                        icon.innerText = "♔";
+                    } else {
+                        ind.style.background = 'rgba(30, 30, 30, 0.95)'; 
+                        ind.style.color = '#fff';
+                        ind.style.borderColor = (this.kingsInCheck.b) ? 'red' : '#555';
+                        txt.innerText = (this.kingsInCheck.b) ? "Хід: Чорні (ШАХ!)" : "Хід: Чорні";
+                        icon.innerText = "♚";
+                    }
                 }
             }
 
@@ -2134,7 +2223,163 @@ findKing(color) {
             isInCheck(kingColor) { const kingPos = this.findKing(kingColor); if (!kingPos) return false; return this.isSquareAttacked(kingPos.c, kingPos.r, kingColor === 'w' ? 'b' : 'w'); }
             updateKingCheckStatus(color) { this.kingsInCheck[color] = this.isInCheck(color) ? this.findKing(color) : null; }
 
-            hasAnyLegalMoves(color) { return true; }
+            hasAnyLegalMoves(color) {
+                // Таймер для захисту від повного зависання
+                const startTime = performance.now();
+                // Даємо більше часу (200мс), щоб встигнути знайти хід
+                const MAX_CALC_TIME_MS = 200; 
+
+                // 1. Для гігантських дошок (>64) взагалі не перевіряємо (щоб не лагало при ходьбі)
+                if (this.boardSize > 64) return true;
+
+                // 2. Для малих дошок (<= 20) перевіряємо ПОВНІСТЮ (ігноруємо таймер), 
+                // щоб гарантовано показати МАТ.
+                const allowTimeout = (this.boardSize > 20);
+
+                const checkPiece = (p, cx, cy) => {
+                    const moves = this.generatePotentialMoves(p, cx, cy);
+                    for (const m of moves) {
+                        if (this.checkersSymbols.has(p.s)) return true;
+                        if (this.simulateMoveAndCheckSafety(p, cx, cy, m.c, m.r)) {
+                            return true;
+                        }
+                    }
+                    return false;
+                };
+
+                // Сканування GRID (реальні фігури)
+                for (const [key, val] of this.grid) {
+                    // Перевіряємо таймер тільки якщо дошка велика
+                    if (allowTimeout && (performance.now() - startTime > MAX_CALC_TIME_MS)) return true;
+
+                    if (val === GRID_VOID) continue;
+                    const comma = key.indexOf(',');
+                    const cx = parseInt(key.substring(0, comma));
+                    const cy = parseInt(key.substring(comma + 1));
+                    const id = val & 0xFFFF;
+                    const p = this.palette[id-1];
+                    
+                    if (p.c === color) {
+                        if (checkPiece(p, cx, cy)) return true;
+                    }
+                }
+
+                // Сканування Virtual (армія)
+                if (this.virtualGen) {
+                    let armyHeight = Math.floor(this.boardSize * (this.virtualProps.percent / 100));
+                    if (this.virtualGen === 'chess960') armyHeight = 2;
+                    else if (armyHeight < 2 && this.virtualGen !== 'checkers') armyHeight = 2;
+
+                    const ranges = [
+                        {start: 0, end: armyHeight},
+                        {start: this.boardSize - armyHeight, end: this.boardSize}
+                    ];
+
+                    for (const range of ranges) {
+                        for (let r = range.start; r < range.end; r++) {
+                            for (let c = 0; c < this.boardSize; c++) {
+                                // Перевірка таймера всередині циклу (рідше, кожні 10 стовпців)
+                                if (allowTimeout && (c % 10 === 0) && (performance.now() - startTime > MAX_CALC_TIME_MS)) return true;
+
+                                if (this.grid.has(this.getKey(c, r))) continue;
+
+                                const p = this.getVirtualPiece(c, r);
+                                if (p && p.c === color) {
+                                    if (checkPiece(p, c, r)) return true;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                return false;
+            }hasAnyLegalMoves(color) {
+                // Таймер: даємо 500мс на пошук ходу (пів секунди - це непомітно при маті)
+                const startTime = performance.now();
+                const MAX_CALC_TIME_MS = 500;
+
+                // Якщо дошка гігантська (>64x64), авто-мат вимикаємо повністю
+                if (this.boardSize > 64) return true;
+
+                // Допоміжна функція перевірки
+                const checkPiece = (p, cx, cy) => {
+                    const moves = this.generatePotentialMoves(p, cx, cy);
+                    // Для шашок просто наявність ходу
+                    if (this.checkersSymbols.has(p.s)) return moves.length > 0;
+                    
+                    // Для шахів - перевірка на безпеку
+                    for (const m of moves) {
+                        if (this.simulateMoveAndCheckSafety(p, cx, cy, m.c, m.r)) {
+                            return true; // Знайшли рятівний хід!
+                        }
+                    }
+                    return false;
+                };
+
+                // --- КРОК 1: ПЕРЕВІРКА КОРОЛЯ (ПРІОРИТЕТ) ---
+                // Найчастіше при шаху треба тікати королем. Перевіримо це першим, це дуже швидко.
+                const kPos = this.findKing(color);
+                if (kPos) {
+                    const kPiece = this.getPiece(kPos.c, kPos.r);
+                    if (kPiece && checkPiece(kPiece, kPos.c, kPos.r)) return true;
+                }
+
+                // --- КРОК 2: ПЕРЕВІРКА ІНШИХ ФІГУР ---
+                
+                // А. Перевірка реальних фігур (Grid)
+                for (const [key, val] of this.grid) {
+                    // Якщо час вийшов - перериваємо і вважаємо, що хід є (щоб не висло)
+                    if (performance.now() - startTime > MAX_CALC_TIME_MS) return true;
+
+                    if (val === GRID_VOID) continue;
+                    const comma = key.indexOf(',');
+                    const cx = parseInt(key.substring(0, comma));
+                    const cy = parseInt(key.substring(comma + 1));
+                    
+                    // Короля ми вже перевірили, пропускаємо
+                    if (cx === kPos?.c && cy === kPos?.r) continue;
+
+                    const id = val & 0xFFFF;
+                    const p = this.palette[id-1];
+                    
+                    if (p.c === color) {
+                        if (checkPiece(p, cx, cy)) return true;
+                    }
+                }
+
+                // Б. Перевірка віртуальних фігур (Армія)
+                if (this.virtualGen) {
+                    let armyHeight = Math.floor(this.boardSize * (this.virtualProps.percent / 100));
+                    if (this.virtualGen === 'chess960') armyHeight = 2;
+                    else if (armyHeight < 2 && this.virtualGen !== 'checkers') armyHeight = 2;
+
+                    const ranges = [
+                        {start: 0, end: armyHeight},
+                        {start: this.boardSize - armyHeight, end: this.boardSize}
+                    ];
+
+                    for (const range of ranges) {
+                        for (let r = range.start; r < range.end; r++) {
+                            for (let c = 0; c < this.boardSize; c++) {
+                                // Перевірка часу кожні 10 клітинок
+                                if ((c % 10 === 0) && (performance.now() - startTime > MAX_CALC_TIME_MS)) return true;
+
+                                // Якщо фігура вже змінена (в Grid), пропускаємо
+                                if (this.grid.has(this.getKey(c, r))) continue;
+                                // Короля пропускаємо
+                                if (c === kPos?.c && r === kPos?.r) continue;
+
+                                const p = this.getVirtualPiece(c, r);
+                                if (p && p.c === color) {
+                                    if (checkPiece(p, c, r)) return true;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                return false;
+            }
             _resolveDirs(d) { return typeof d === 'string' ? DIRS[d] : d; }
 
             generatePotentialMoves(piece, cx, cy, bounds = null) {
