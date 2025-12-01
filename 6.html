@@ -612,79 +612,84 @@ const megaDefs = {
             }
             // Новый метод: Находит конец пути, перепрыгивая через пустоту
             // Гібридний пошук: Точний поблизу, швидкий далеко
-            findRayEnd(cx, cy, dx, dy, maxSteps) {
+            findRayEnd(cx, cy, dx, dy, maxLimit) {
                 let x = cx;
                 let y = cy;
                 let steps = 0;
-                const limit = maxSteps || this.boardSize;
                 
-                // 1. ЧЕСНИЙ СКАНЕР (Ближня дистанція)
-                // Перевіряємо перші 100 клітинок реально. Це гарантує, що на звичайній дошці
-                // або при звичайному зумі ми ніколи не пропустимо фігуру.
-                // 100 операцій для JS — це миттєво.
-                const SCAN_LIMIT = 100;
+                // 1. ЧЕСНИЙ СКАНЕР (Ближня зона - щоб не пропустити нічого поруч)
+                const SCAN_LIMIT = 50; 
 
-                while (steps < limit && steps < SCAN_LIMIT) {
+                while (steps < maxLimit && steps < SCAN_LIMIT) {
                     steps++;
                     x += dx; y += dy;
 
-                    // Вихід за межі дошки
+                    // Перевірка меж
                     if (x < 0 || x >= this.boardSize || y < 0 || y >= this.boardSize) {
                         return { x: x - dx, y: y - dy, hit: false, edge: true };
                     }
 
-                    // Перевірка фігури (Grid + Virtual)
+                    // Перевірка влучання
                     const target = this.getPiece(x, y);
                     if (target) {
-                        const myPiece = this.getPiece(cx, cy);
-                        const isAlly = myPiece && target.c === myPiece.c;
+                        const startP = this.getPiece(cx, cy);
+                        const isAlly = startP && target.c === startP.c;
                         return { x, y, hit: true, ally: isAlly };
                     }
                 }
 
-                // 2. ГІПЕР-СТРИБОК (Далека дистанція)
-                // Якщо ми пройшли 100 клітинок і нічого не знайшли, значить ми в "космосі".
-                // Тепер можна використати математику, щоб знайти край дошки або наступну фігуру з Grid.
+                // 2. МАТЕМАТИЧНИЙ СТРИБОК (Далека зона)
+                // Якщо ми пройшли скан і нічого не знайшли, рахуємо математично до краю або перешкоди
                 
-                // Рахуємо скільки лишилось до краю
-                let distToEdge = this.boardSize;
-                if (dx > 0) distToEdge = this.boardSize - 1 - x;
-                else if (dx < 0) distToEdge = x;
-                if (dy > 0) distToEdge = Math.min(distToEdge, this.boardSize - 1 - y);
-                else if (dy < 0) distToEdge = Math.min(distToEdge, y);
+                // Рахуємо, скільки КРОКІВ (а не пікселів) лишилось до країв дошки
+                let stepsX = Infinity;
+                if (dx > 0) stepsX = (this.boardSize - 1 - x) / dx;
+                else if (dx < 0) stepsX = (0 - x) / dx;
 
-                // Обмежуємо лімітом ходу (якщо є)
-                let jumpDist = distToEdge;
-                if (maxSteps) jumpDist = Math.min(jumpDist, limit - steps);
+                let stepsY = Infinity;
+                if (dy > 0) stepsY = (this.boardSize - 1 - y) / dy;
+                else if (dy < 0) stepsY = (0 - y) / dy;
 
-                // Перевіряємо, чи є на шляху реальні фігури (з Grid), щоб не перестрибнути їх
-                let bestGridDist = jumpDist;
+                // Доступно кроків до краю дошки
+                let stepsToEdge = Math.min(stepsX, stepsY);
+                // Враховуємо ліміт дальності ходу фігури
+                let remainingLimit = maxLimit - steps;
+                
+                let bestSteps = Math.floor(Math.min(stepsToEdge, remainingLimit));
                 let hitGrid = false;
 
+                // --- Перевірка Grid (тільки модифіковані фігури) ---
                 for (const [key, val] of this.grid) {
                     if (val === GRID_VOID) continue;
                     const comma = key.indexOf(',');
                     const px = parseInt(key.substring(0, comma));
                     const py = parseInt(key.substring(comma + 1));
 
-                    // Вектор від поточної точки сканування (x, y)
+                    // Вектор від поточної точки x,y
                     const vx = px - x;
                     const vy = py - y;
 
-                    // Перевірка напрямку
-                    if (Math.sign(vx) !== dx && dx !== 0) continue;
-                    if (Math.sign(vy) !== dy && dy !== 0) continue;
-                    // Перевірка діагоналі
+                    // Перевірка колінеарності (чи лежить фігура на лінії вектору)
+                    // Використовуємо cross product: x1*y2 - x2*y1 == 0
                     if (vx * dy - vy * dx !== 0) continue;
 
-                    const d = Math.max(Math.abs(vx), Math.abs(vy));
-                    if (d < bestGridDist && d > 0) {
-                        bestGridDist = d;
+                    // Чи в правильному напрямку?
+                    if (Math.sign(vx) !== Math.sign(dx) && dx !== 0) continue;
+                    if (Math.sign(vy) !== Math.sign(dy) && dy !== 0) continue;
+
+                    // Рахуємо дистанцію в кроках
+                    // Беремо ту вісь, де рух більший, щоб уникнути ділення на 0
+                    let s = 0;
+                    if (Math.abs(dx) >= Math.abs(dy)) s = vx / dx;
+                    else s = vy / dy;
+
+                    if (s > 0 && s < bestSteps) {
+                        bestSteps = s;
                         hitGrid = true;
                     }
                 }
 
-                // Також перевіряємо стіну віртуальної армії (якщо летимо в неї)
+                // --- Перевірка Армії (Virtual) ---
                 if (this.virtualGen) {
                     let rows = 0;
                     if (this.virtualGen === 'chess960') rows = 2;
@@ -692,30 +697,38 @@ const megaDefs = {
                         rows = Math.floor(this.boardSize * (this.virtualProps.percent / 100));
                         if (this.virtualGen !== 'checkers' && rows < 2) rows = 2;
                     }
-                    const botLimit = this.boardSize - rows; // Початок нижньої армії
 
-                    // Якщо летимо вниз і ще не дійшли до нижньої армії
-                    if (dy > 0 && y < botLimit) {
-                        const distToArmy = botLimit - y;
-                        if (distToArmy < bestGridDist) {
-                            bestGridDist = distToArmy;
-                            hitGrid = true; // Вважаємо це влучанням
+                    // Перевіряємо перетин з горизонтальними лініями армій
+                    const checkY = (limitY) => {
+                        // (limitY - y) / dy = s
+                        if (dy === 0) return;
+                        const s = (limitY - y) / dy;
+                        // Округлюємо вгору, бо ми не можемо зупинитись між клітинками
+                        // Якщо s = 1.5, значить ми перестрибнули лінію між кроком 1 і 2. 
+                        // Перша точка влучання буде 2.
+                        const sInt = Math.ceil(s); 
+                        if (sInt > 0 && sInt < bestSteps) {
+                             // Перевіряємо чи точно ми влучили в зону армії
+                             const landY = y + sInt * dy;
+                             // Для армії це просто: якщо ми за межею rows, це влучання
+                             if (dy > 0 && landY >= this.boardSize - rows) { bestSteps = sInt; hitGrid = true; }
+                             if (dy < 0 && landY < rows) { bestSteps = sInt; hitGrid = true; }
                         }
-                    }
-                    // Для верхньої армії не перевіряємо, бо ми летимо від неї (y збільшується або ми вже пройшли)
-                    // (Спрощення для швидкості)
+                    };
+
+                    if (dy > 0) checkY(this.boardSize - rows); // Летимо вниз
+                    if (dy < 0) checkY(rows - 1); // Летимо вгору
                 }
 
-                // Стрибаємо
-                const finalX = x + dx * bestGridDist;
-                const finalY = y + dy * bestGridDist;
+                const finalX = x + dx * bestSteps;
+                const finalY = y + dy * bestSteps;
 
-                // Перевіряємо фінальну точку (чи це ворог)
+                // Перевіряємо фінальну ціль
                 const finalTarget = this.getPiece(finalX, finalY);
-                const startPiece = this.getPiece(cx, cy);
-                const finalAlly = finalTarget && startPiece && finalTarget.c === startPiece.c;
+                const startP = this.getPiece(cx, cy);
+                const isAlly = finalTarget && startP && finalTarget.c === startP.c;
 
-                return { x: finalX, y: finalY, hit: hitGrid || !!finalTarget, ally: finalAlly };
+                return { x: finalX, y: finalY, hit: hitGrid || !!finalTarget, ally: isAlly };
             }
 
             calculateHighlights(piece, cx, cy) {
@@ -3053,7 +3066,7 @@ switchTurn() {
                 ctx.fillRect(0, 0, width, height);
 
                 const bx = this.camera.x; const by = this.camera.y;
-                // Межі видимого екрану (Viewport) в координатах сітки
+                // Межі видимого екрану (у клітинках)
                 const startCol = Math.floor((-this.camera.x) / cs);
                 const endCol = Math.floor((width - this.camera.x) / cs) + 1;
                 const startRow = Math.floor((-this.camera.y) / cs);
@@ -3069,7 +3082,6 @@ switchTurn() {
 
                      if (cs > 0.8) {
                          ctx.beginPath();
-                         // Малюємо тільки видимі клітинки
                          const renderStartC = Math.max(0, startCol);
                          const renderEndC = Math.min(this.boardSize, endCol);
                          const renderStartR = Math.max(0, startRow);
@@ -3099,7 +3111,6 @@ switchTurn() {
                     for (const color of ['w', 'b']) {
                         if (this.kingsInCheck[color]) {
                             const k = this.kingsInCheck[color];
-                            // Перевіряємо, чи видно короля
                             if (k.c >= startCol && k.c <= endCol && k.r >= startRow && k.r <= endRow) {
                                 ctx.fillStyle = (this.gameOver && this.currentTurn === color) ? this.colors.mateHighlight : this.colors.checkHighlight;
                                 ctx.fillRect(bx + k.c * cs, by + k.r * cs, cs, cs);
@@ -3108,78 +3119,77 @@ switchTurn() {
                     }
                 }
 
-                // 4. ПІДСВІТКА ХОДІВ (ОПТИМІЗОВАНА ДЛЯ 1 МЛРД)
+                // 4. ПІДСВІТКА ХОДІВ (ВИПРАВЛЕНО ДЛЯ СКЛАДНИХ ВЕКТОРІВ)
                 if (this.highlightedMoves.length > 0) {
-                    // Трохи розширюємо межі для плавності
                     const viewMinC = startCol - 1;
                     const viewMaxC = endCol + 1;
                     const viewMinR = startRow - 1;
                     const viewMaxR = endRow + 1;
 
-                    ctx.fillStyle = "rgba(46, 204, 113, 0.8)"; // Зелений для точок
+                    ctx.fillStyle = "rgba(46, 204, 113, 0.8)"; 
 
                     this.highlightedMoves.forEach(move => {
-                        // A. Рендеринг окремих точок (стрибки, атаки)
                         if (move.type === 'point') {
+                            // Малювання точок
                             if (move.c >= viewMinC && move.c <= viewMaxC && move.r >= viewMinR && move.r <= viewMaxR) {
-                                const hx = bx + move.c * cs + cs/2;
-                                const hy = by + move.r * cs + cs/2;
-                                ctx.beginPath();
-                                if (move.capture) {
-                                    const capSize = Math.max(cs * 0.35, 4);
-                                    ctx.fillStyle = "rgba(200, 50, 50, 0.7)";
-                                    ctx.arc(hx, hy, capSize, 0, Math.PI * 2);
-                                    ctx.fill();
-                                    ctx.fillStyle = "rgba(46, 204, 113, 0.8)"; // Повертаємо зелений
-                                } else {
-                                    const dotSize = Math.max(cs * 0.18, 3);
-                                    ctx.arc(hx, hy, dotSize, 0, Math.PI * 2);
-                                    ctx.fill();
+                                // Додаткова перевірка, щоб точка не малювалась за межами ігрового поля
+                                if (move.c >= 0 && move.c < this.boardSize && move.r >= 0 && move.r < this.boardSize) {
+                                    const hx = bx + move.c * cs + cs/2;
+                                    const hy = by + move.r * cs + cs/2;
+                                    ctx.beginPath();
+                                    if (move.capture) {
+                                        const capSize = Math.max(cs * 0.35, 4);
+                                        ctx.fillStyle = "rgba(200, 50, 50, 0.7)";
+                                        ctx.arc(hx, hy, capSize, 0, Math.PI * 2);
+                                        ctx.fill();
+                                        ctx.fillStyle = "rgba(46, 204, 113, 0.8)"; 
+                                    } else {
+                                        const dotSize = Math.max(cs * 0.18, 3);
+                                        ctx.arc(hx, hy, dotSize, 0, Math.PI * 2);
+                                        ctx.fill();
+                                    }
                                 }
                             }
                         } 
-                        // B. Рендеринг променів (RAYS) - Магія для мільярдів клітинок
                         else if (move.type === 'ray') {
-                            // Ми маємо лінію: P = Start + t * Dir, де 0 < t <= len
-                            // Нам треба знайти діапазон T (t_min, t_max), який потрапляє у Viewport.
+                            // Малювання ліній (Rays)
+                            // ВИПРАВЛЕНО: Правильний розрахунок tMin/tMax з урахуванням dx/dy != 1
+                            let tMin = 1;         
+                            let tMax = move.len;  
 
-                            let tMin = 1;         // Починаємо з 1 (наступна клітинка)
-                            let tMax = move.len;  // Максимальна довжина ходу
-
-                            // Відсікання по X
-                            if (move.dx > 0) {
-                                tMin = Math.max(tMin, viewMinC - move.cx);
-                                tMax = Math.min(tMax, viewMaxC - move.cx);
-                            } else if (move.dx < 0) {
-                                tMin = Math.max(tMin, move.cx - viewMaxC);
-                                tMax = Math.min(tMax, move.cx - viewMinC);
+                            // Clipping X
+                            if (move.dx !== 0) {
+                                const t1 = (viewMinC - move.cx) / move.dx;
+                                const t2 = (viewMaxC - move.cx) / move.dx;
+                                // Сортуємо t1, t2, бо при від'ємному dx вони міняються місцями
+                                tMin = Math.max(tMin, Math.ceil(Math.min(t1, t2)));
+                                tMax = Math.min(tMax, Math.floor(Math.max(t1, t2)));
                             } else {
-                                // Якщо рух вертикальний, перевіряємо, чи X в межах екрану
-                                if (move.cx < viewMinC || move.cx > viewMaxC) return; // Промінь за межами екрану по X
+                                // Вертикальна лінія: якщо X поза екраном - не малюємо нічого
+                                if (move.cx < viewMinC || move.cx > viewMaxC) tMax = -1;
                             }
 
-                            // Відсікання по Y
-                            if (move.dy > 0) {
-                                tMin = Math.max(tMin, viewMinR - move.cy);
-                                tMax = Math.min(tMax, viewMaxR - move.cy);
-                            } else if (move.dy < 0) {
-                                tMin = Math.max(tMin, move.cy - viewMaxR);
-                                tMax = Math.min(tMax, move.cy - viewMinR);
+                            // Clipping Y
+                            if (move.dy !== 0) {
+                                const t1 = (viewMinR - move.cy) / move.dy;
+                                const t2 = (viewMaxR - move.cy) / move.dy;
+                                tMin = Math.max(tMin, Math.ceil(Math.min(t1, t2)));
+                                tMax = Math.min(tMax, Math.floor(Math.max(t1, t2)));
                             } else {
-                                // Якщо рух горизонтальний, перевіряємо, чи Y в межах екрану
-                                if (move.cy < viewMinR || move.cy > viewMaxR) return; // Промінь за межами екрану по Y
+                                // Горизонтальна лінія
+                                if (move.cy < viewMinR || move.cy > viewMaxR) tMax = -1;
                             }
 
-                            // Якщо є перетин (видимий відрізок)
                             if (tMin <= tMax) {
-                                // Цикл тільки по ВИДИМИХ клітинках (зазвичай 20-50 ітерацій, навіть якщо хід на мільярд)
                                 for (let t = tMin; t <= tMax; t++) {
                                     const gridX = move.cx + t * move.dx;
                                     const gridY = move.cy + t * move.dy;
                                     
+                                    // Сувора перевірка меж дошки, щоб не вилазило (скрін 1)
+                                    if (gridX < 0 || gridX >= this.boardSize || gridY < 0 || gridY >= this.boardSize) continue;
+
                                     const hx = bx + gridX * cs + cs/2;
                                     const hy = by + gridY * cs + cs/2;
-                                    
                                     const dotSize = Math.max(cs * 0.18, 3);
                                     
                                     ctx.beginPath();
@@ -3214,7 +3224,6 @@ switchTurn() {
                 const visibleCellsH = endRow - startRow;
                 const totalVisible = visibleCellsW * visibleCellsH;
                 let skip = 1;
-                // Адаптивний пропуск при сильному віддаленні, щоб не малювати тисячі іконок в одній точці
                 if (totalVisible > 50000) skip = Math.ceil(Math.sqrt(totalVisible / 50000));
                 
                 const minDrawSize = 12;
@@ -3241,7 +3250,7 @@ switchTurn() {
                     this.drawPiece(ctx, this.draggedPiece.data, this.mouse.x | 0, this.mouse.y | 0, Math.max(cs, 40));
                 }
             }
-
+            
             drawPiece(ctx, pieceData, x, y, size) {
                 const sprite = this.getPieceSprite(pieceData.s, pieceData.c);
                 const drawSize = size * 0.85;
