@@ -924,8 +924,24 @@ const megaDefs = {
 
                 document.getElementById('boardSize').addEventListener('change', e => this.setSize(e.target.value));
                 document.getElementById('zoomSlider').addEventListener('input', e => {
-                    this.targetZoom = Math.pow(10, parseFloat(e.target.value));
-                });
+    const val = parseFloat(e.target.value);
+    const newZoom = Math.pow(10, val);
+
+    // 1. Знаходимо центр екрану
+    const screenCX = this.canvas.width / 2;
+    const screenCY = this.canvas.height / 2;
+
+    // 2. Рахуємо, де цей центр знаходиться у координатах ігрового світу зараз
+    const worldCX = (screenCX - this.camera.x) / this.camera.zoom;
+    const worldCY = (screenCY - this.camera.y) / this.camera.zoom;
+
+    // 3. Встановлюємо новий цільовий зум
+    this.targetCamera.zoom = newZoom;
+
+    // 4. Коригуємо цільову позицію камери, щоб світ залишився по центру
+    this.targetCamera.x = screenCX - worldCX * newZoom;
+    this.targetCamera.y = screenCY - worldCY * newZoom;
+});
                 document.getElementById('fantasyMix').addEventListener('input', (e) => {
                     document.getElementById('fantasyPercentDisplay').innerText = e.target.value + '%';
                 });
