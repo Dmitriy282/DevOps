@@ -1,0 +1,3136 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mega Chess: Color Fix</title>
+    <style>
+        /* --- STYLES --- */
+        body { margin: 0; padding: 0; overflow: hidden; font-family: "Segoe UI", Arial, sans-serif; background: #eeeed2; user-select: none; }
+        #canvas { display: block; cursor: grab; }
+        #canvas:active { cursor: grabbing; }
+
+        #controls {
+            position: absolute; top: 10px; left: 10px;
+            background: rgba(255, 255, 255, 0.94);
+            padding: 12px; border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+            width: 380px;
+            max-height: 95vh;
+            overflow-y: auto;
+            backdrop-filter: blur(8px); z-index: 10;
+            transition: opacity 0.3s;
+            display: flex; flex-direction: column; gap: 10px;
+        }
+        #controls::-webkit-scrollbar { width: 8px; }
+        #controls::-webkit-scrollbar-track { background: #f0f0f0; border-radius: 4px; }
+        #controls::-webkit-scrollbar-thumb { background: #bbb; border-radius: 4px; }
+
+        #turnIndicator {
+            position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+            background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(4px);
+            color: #333; padding: 8px 25px; border-radius: 50px; font-size: 20px;
+            font-weight: bold; border: 1px solid rgba(0,0,0,0.1);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1); pointer-events: none;
+            display: flex; align-items: center; gap: 10px; transition: 0.3s; z-index: 10;
+        }
+
+        #loadingOverlay {
+            position: absolute; bottom: 20px; right: 20px; width: 300px;
+            background: rgba(0,0,0,0.8); display: none; padding: 15px; border-radius: 10px;
+            flex-direction: column; justify-content: center; align-items: flex-start;
+            z-index: 200; color: white; backdrop-filter: blur(5px);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            pointer-events: none;
+        }
+        .progress-bar { width: 100%; height: 6px; background: #444; border-radius: 3px; margin-top: 8px; overflow: hidden; }
+        .progress-fill { height: 100%; background: #2ecc71; width: 0%; transition: width 0.1s; }
+
+        /* --- PROMOTION OVERLAY STYLES --- */
+        #promotionOverlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.75); display: none; justify-content: center; align-items: center;
+            z-index: 150; backdrop-filter: blur(8px); animation: fadeIn 0.3s;
+        }
+        .promo-card {
+            background: white; padding: 25px; border-radius: 16px; text-align: center;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.8); border: 2px solid #3498db;
+            width: 500px; max-height: 80vh; display: flex; flex-direction: column;
+            animation: popIn 0.3s forwards;
+        }
+        .promo-header { font-size: 24px; margin-bottom: 15px; color: #2c3e50; font-weight: bold; }
+        .promo-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(50px, 1fr)); gap: 8px;
+            overflow-y: auto; padding: 10px; border: 1px solid #eee; border-radius: 8px; background: #f9f9f9;
+        }
+
+        .promo-btn {
+            font-size: 30px;
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: 0.2s;
+            padding: 5px;
+            color: #000 !important;
+            line-height: 1;
+        }
+        .promo-btn:hover { background: #e3f2fd; transform: scale(1.1); border-color: #3498db; }
+
+        #gameOverOverlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.6); display: none; justify-content: center; align-items: center;
+            z-index: 100; backdrop-filter: blur(5px); animation: fadeIn 0.5s;
+        }
+        .victory-card {
+            background: white; padding: 40px; border-radius: 20px; text-align: center;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.8); border: 4px solid #f1c40f;
+            min-width: 300px; transform: scale(0.9); animation: popIn 0.3s forwards;
+        }
+        .victory-card h1 { margin: 0; color: #e74c3c; font-size: 48px; text-transform: uppercase; }
+        .victory-card h2 { margin: 10px 0 30px 0; color: #2c3e50; font-size: 24px; }
+        .victory-card .winner-icon { font-size: 60px; margin: 10px 0; display: block; }
+
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes popIn { to { transform: scale(1); } }
+
+        h3 { margin: 0 0 5px 0; color: #2c3e50; font-size: 18px; border-bottom: 1px solid #ddd; padding-bottom: 8px; }
+        .control-group { margin-bottom: 5px; }
+        label { display: block; margin-bottom: 4px; font-size: 12px; font-weight: 700; color: #555; text-transform: uppercase; }
+        input, button { width: 100%; padding: 6px; box-sizing: border-box; border-radius: 6px; border: 1px solid #ccc; font-size: 13px; }
+
+        .btn-row { display: flex; gap: 4px; margin-top: 4px; }
+        button { background: #769656; color: white; border: none; cursor: pointer; font-weight: 600; transition: 0.1s; }
+        button:hover { background: #5d7c40; transform: translateY(-1px); }
+        button:active { transform: translateY(1px); }
+
+        button.secondary { background: #9ca3af; }
+        button.secondary:hover { background: #6b7280; }
+        button.danger { background: #e74c3c; }
+        button.danger:hover { background: #c0392b; }
+        button.action { background: #f39c12; }
+        button.action:hover { background: #d35400; }
+        button.checkers { background: #8e44ad; }
+        button.checkers:hover { background: #732d91; }
+        button.classic { background: #3498db; }
+        button.classic:hover { background: #2980b9; }
+        button.undo-btn { background: #555; }
+        button.undo-btn:hover { background: #333; }
+
+        /* --- LOG STYLES --- */
+         #logContainer {
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            margin-top: 5px;
+            height: 140px;
+            overflow-y: auto;
+            position: relative;
+        }
+        #logContainer::-webkit-scrollbar { width: 6px; }
+        #logContainer::-webkit-scrollbar-thumb { background: #ccc; }
+
+        #logTable {
+            width: 100%;
+            border-collapse: collapse;
+            font-family: "Segoe UI Mono", monospace;
+            font-size: 12px;
+            table-layout: fixed;
+        }
+        #logTable th {
+            position: sticky; top: 0;
+            background: #e0e0e0;
+            color: #555;
+            padding: 4px;
+            font-size: 11px;
+            z-index: 2;
+            text-align: center;
+            border-bottom: 1px solid #ccc;
+        }
+        #logTable td {
+            padding: 3px 5px;
+            border-bottom: 1px solid #f0f0f0;
+            color: #333;
+            vertical-align: middle;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            text-align: center;
+        }
+        #logTable tr:nth-child(even) { background: #f9f9f9; }
+        
+        .log-num { width: 30px; color: #999; font-weight: bold; border-right: 1px solid #eee; background: #fafafa; }
+        .move-icon { font-weight: bold; color: #2c3e50; margin-right: 2px; }
+        .move-cap { color: #c0392b; font-weight: bold; margin-left: 2px; font-size: 10px; }
+        .move-coords { color: #444; }
+
+        .piece-container { display: flex; flex-direction: column; gap: 8px; }
+        .category-block { background: rgba(0,0,0,0.03); border-radius: 6px; padding: 6px; border: 1px solid rgba(0,0,0,0.05); }
+        .grid-header { font-size: 11px; font-weight: bold; text-transform: uppercase; color: #666; margin-bottom: 4px; text-align: center; background: #e0e0e0; border-radius: 3px; padding: 2px; }
+        .piece-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 3px; }
+        .piece-btn { aspect-ratio: 1; padding: 0; font-size: 22px; background: #fff; color: #333; border: 1px solid #ccc; cursor: pointer; display: flex; align-items: center; justify-content: center; border-radius: 4px; transition: transform 0.1s, background 0.1s; }
+        .piece-btn:hover { background: #fff; transform: scale(1.15); z-index: 5; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
+        .piece-btn.selected { background: #769656; color: white; border-color: #4b6334; box-shadow: inset 0 0 5px rgba(0,0,0,0.3); }
+        .piece-btn.eraser { 
+            background: #ffebee; 
+            color: #c0392b; 
+            border-color: #e74c3c; 
+            font-size: 22px; /* Збільшимо іконку */
+            font-weight: bold;
+        }
+        .piece-btn.eraser:hover {
+            background: #ffcdd2;
+            box-shadow: inset 0 0 5px rgba(0,0,0,0.2);
+        }
+        .piece-btn.black-piece { background: #333; color: #eee; border-color: #000; }
+        .piece-btn.black-piece:hover { background: #555; }
+
+        .info-panel { margin-top: 10px; padding: 8px; background: rgba(241, 242, 246, 0.8); border-radius: 6px; font-size: 12px; color: #555; text-align: center;}
+        #debug { position: absolute; top: 10px; right: 10px; color: #555; background: rgba(255,255,255,0.5); padding: 5px 10px; border-radius: 4px; font-family: monospace; pointer-events: none; z-index: 5; }
+
+        .input-row { display: flex; gap: 5px; align-items: center; justify-content: space-between; margin-bottom: 5px;}
+        .input-row input[type="number"] { width: 60px; }
+        .input-row span { font-size: 12px; font-weight: bold; }
+        input[type=range] { padding: 0; margin: 5px 0; }
+        .separator { border-top: 1px dashed #ccc; margin: 5px 0; }
+        .gen-panel { background: rgba(0,0,0,0.05); padding: 8px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.1); }
+
+        #opt-warning { color: #d35400; font-weight: bold; display: none; margin-top: 5px; font-size: 11px; text-align: center;}
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+
+    <div id="loadingOverlay">
+        <strong id="loadingText">Генерація світу...</strong>
+        <div class="progress-bar">
+            <div id="loadingProgress" class="progress-fill"></div>
+        </div>
+        <div style="font-size: 10px; margin-top: 5px; color: #ccc">Оптимізована генерація...</div>
+    </div>
+
+    <!-- PROMOTION OVERLAY -->
+    <div id="promotionOverlay">
+        <div class="promo-card">
+            <div class="promo-header">✨ Оберіть фігуру ✨</div>
+            <div id="promotionGrid" class="promo-grid">
+                <!-- Buttons will be injected here -->
+            </div>
+            <div style="margin-top:10px; font-size:12px; color:#777;">Натисніть на фігуру для перетворення</div>
+        </div>
+    </div>
+
+    <div id="turnIndicator">
+        <span id="turnIcon" style="font-size: 30px;">♔</span>
+        <span id="turnText">Хід: Білі</span>
+    </div>
+
+    <div id="gameOverOverlay">
+        <div class="victory-card">
+            <h1>МАТ!</h1>
+            <span class="winner-icon" id="winnerIcon">🏆</span>
+            <h2 id="winnerTxt">Перемога Білих</h2>
+            <button class="action" onclick="game.resetGame()">🔄 Нова гра</button>
+        </div>
+    </div>
+
+    <div id="controls">
+        <h3>🚀 Mega Chess: Unlimited</h3>
+
+        <div class="control-group">
+            <label>Розмір дошки:</label>
+            <input type="number" id="boardSize" value="32" min="2">
+            <div class="btn-row">
+                <button class="secondary" onclick="game.setSize(100)">100</button>
+                <button class="secondary" onclick="game.setSize(1000)">1K</button>
+                <button class="secondary" onclick="game.setSize(50000)">50K</button>
+                <button class="secondary" onclick="game.setSize(1000000)">1M</button>
+            </div>
+        </div>
+
+        <div class="control-group gen-panel">
+             <label>⚔️ Генерація:</label>
+             <div class="input-row">
+                 <span>Заповнення (%):</span>
+                 <input type="number" id="fillPercent" value="25" min="1" max="50">
+             </div>
+             <div class="input-row">
+                <span>Фентезі %:</span>
+                <span id="fantasyPercentDisplay">40%</span>
+             </div>
+             <input type="range" id="fantasyMix" min="0" max="100" value="40" step="10">
+
+             <div class="btn-row">
+                 <button class="classic" onclick="game.fillClassic()">♟️ Клас.</button>
+                 <button class="classic" onclick="game.fillChess960()">🎲 960</button>
+                 <button class="danger" onclick="game.fillArmy()">⚔️ Армія</button>
+                 <button class="action" onclick="game.fillFantasy()">🎲 Мікс</button>
+                 <button class="checkers" onclick="game.fillCheckers()">⚪⚫ Шашки</button>
+             </div>
+
+        </div>
+
+        <div class="separator"></div>
+
+        <div class="control-group">
+             <label>Режими:</label>
+             <div class="btn-row">
+                 <button class="undo-btn" onclick="game.undoMove()">↩️ Назад (Del)</button>
+                 <button id="rulesBtn" onclick="game.toggleRules()">🟢 Правила</button>
+             </div>
+             <div class="btn-row">
+                 <button id="turnBtn" onclick="game.toggleTurnMode()">🟢 Хід (ВКЛ)</button>
+             </div>
+        </div>
+
+        <div class="control-group">
+            <label>📜 Запис ходів:</label>
+            <div id="logContainer">
+                <table id="logTable">
+                    <thead>
+                        <tr>
+                            <th class="log-num">#</th>
+                            <th>Білі</th>
+                            <th>Чорні</th>
+                        </tr>
+                    </thead>
+                    <tbody id="logTableBody">
+                        <!-- Ходи будуть тут -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="separator"></div>
+
+        <div class="control-group">
+             <label>🎨 Редактор (Всі фігури):</label>
+             <div id="pieceContainer" class="piece-container"></div>
+        </div>
+
+        <div class="separator"></div>
+
+        <div class="control-group">
+             <label>Масштаб: <span id="zoomDisplay">100%</span></label>
+             <input type="range" id="zoomSlider" min="-3" max="2" step="0.01">
+        </div>
+        <div class="separator"></div>
+        <div class="control-group">
+            <label>💾 Файл позиції:</label>
+            <div class="btn-row">
+                <button class="action" onclick="game.saveGame()">📥 Зберегти (.json)</button>
+                <button class="classic" onclick="document.getElementById('fileInput').click()">📂 Завантажити</button>
+                <!-- Прихований інпут для завантаження -->
+                <input type="file" id="fileInput" style="display:none" accept=".json" onchange="game.loadGame(this)">
+            </div>
+        </div>
+        <div class="btn-row">
+            <button onclick="game.centerBoard()">🏠 Центр</button>
+            <button class="danger" onclick="game.clear()">🗑️ Очистити</button>
+        </div>
+
+        <div class="info-panel">
+            <span id="coord" style="font-weight:bold; margin-right: 10px">-</span>
+            <span id="count"></span>
+        </div>
+    </div>
+
+    <div id="debug">FPS: <span id="fps">60</span></div>
+
+    <script>
+        const PIECE_CATEGORIES = [
+            { name: "Інструменти", bg: "#fff", items: [{ s: '❌', t: 'Гумка', c: 'eraser' }] },
+            { name: "Класика (Білі)", bg: "#f0f0f0", items: [{s:'♔',t:'Король'}, {s:'♕',t:'Ферзь'}, {s:'♖',t:'Тура'}, {s:'♗',t:'Слон'}, {s:'♘',t:'Кінь'}, {s:'♙',t:'Пішак'}] },
+            { name: "Класика (Чорні)", bg: "#ddd", items: [{s:'♚',t:'Король', cls:'black-piece', color:'b'}, {s:'♛',t:'Ферзь', cls:'black-piece', color:'b'}, {s:'♜',t:'Тура', cls:'black-piece', color:'b'}, {s:'♝',t:'Слон', cls:'black-piece', color:'b'}, {s:'♞',t:'Кінь', cls:'black-piece', color:'b'}, {s:'♟',t:'Пішак', cls:'black-piece', color:'b'}] },
+            { name: "Шашки", bg: "#e0e0e0", items: [{s:'⛀',t:'Біла шашка', color:'w'}, {s:'⛁',t:'Біла дамка', color:'w'}, {s:'⛂',t:'Чорна шашка', color:'b', cls:'black-piece'}, {s:'⛃',t:'Чорна дамка', color:'b', cls:'black-piece'}] },
+            { name: "Mega: Слайдери", bg: "#e8daef", items: [{s:'🚀',t:'Ракета'}, {s:'⚓',t:'Якір'}, {s:'🏹',t:'Лук'}, {s:'🎣',t:'Вудка'}, {s:'🧜',t:'Русалка'}, {s:'⚡',t:'Блискавка'}, {s:'🔱',t:'Тризуб'}, {s:'🦯',t:'Тростина'}, {s:'🕯️',t:'Свічка'}, {s:'📼',t:'Танк'}, {s:'📜',t:'Сувій'}, {s:'🌊',t:'Цунамі'}, {s:'🧬',t:'ДНК'}, {s:'🗡️',t:'Меч'}] },
+            { name: "Mega: Стрибуни (Тварини)", bg: "#d4e6f1", items: [{s:'😺',t:'Кіт'}, {s:'🐺',t:'Вовк'}, {s:'🦊',t:'Лис'}, {s:'🐗',t:'Кабан'}, {s:'🦍',t:'Горила'}, {s:'🐃',t:'Буйвол'}, {s:'🐊',t:'Крокодил'}, {s:'🐌',t:'Равлик'}, {s:'🦑',t:'Кальмар'}, {s:'🐙',t:'Восьминіг'}, {s:'🐝',t:'Бджола'}, {s:'🦋',t:'Метелик'}, {s:'🐫',t:'Верблюд'}, {s:'🦓',t:'Зебра'}, {s:'🦒',t:'Жирафа'}, {s:'🐕',t:'Пес'}, {s:'🦀',t:'Краб'}, {s:'🐆',t:'Леопард'}, {s:'🐿️',t:'Білка'}, {s:'🦇',t:'Кажан'}, {s:'🦗',t:'Коник'}] },
+            { name: "Mega: Комбіновані & Ролі", bg: "#f9e79f", items: [{s:'🎎',t:'Імператриця'}, {s:'👸',t:'Принцеса'}, {s:'🏺',t:'Амазонка'}, {s:'👮',t:'Поліція'}, {s:'🤖',t:'Робот'}, {s:'🛸',t:'НЛО'}, {s:'🏇',t:'Вершник'}, {s:'🌪️',t:'Торнадо'}, {s:'🧛',t:'Вампір'}, {s:'💂',t:'Гвардієць'}, {s:'👷',t:'Будівельник'}, {s:'🧞',t:'Джин'}, {s:'🧚',t:'Фея'}, {s:'☀️',t:'Сонце'}, {s:'🧙',t:'Маг'}, {s:'🕵️',t:'Шпигун'}, {s:'🥋',t:'Самурай'}, {s:'🥷',t:'Ніндзя'}, {s:'👨',t:'Чоловік'}, {s:'🤴',t:'Принц'}, {s:'👼',t:'Ангел'}] },
+            { name: "Mega: Арсенал & Монстри", bg: "#fadbd8", items: [{s:'🛡️',t:'Щит'}, {s:'🔪',t:'Кинджал'}, {s:'🔥',t:'Вогонь'}, {s:'💧',t:'Вода'}, {s:'❄️',t:'Сніг'}, {s:'🧟',t:'Зомбі'}, {s:'🪨',t:'Камінь'}, {s:'🧨',t:'Динаміт'}, {s:'💣',t:'Бомба'}, {s:'⚗️',t:'Зілля'}, {s:'💍',t:'Кільце'}, {s:'🔮',t:'Сфера'}, {s:'🦂',t:'Скорпіон'}, {s:'🐍',t:'Змія'}, {s:'🦖',t:'Ті-Рекс'}, {s:'🦈',t:'Акула'}, {s:'👾',t:'Чужий'}, {s:'👺',t:'Гоблін'}, {s:'🐲',t:'Дракон'}, {s:'🦄',t:'Єдиноріг'}, {s:'🦅',t:'Грифон'}, {s:'🕷️',t:'Павук'}, {s:'🐢',t:'Черепаха'}] },
+            { name: "Mega: Абстракція & Природа", bg: "#d5f5e3", items: [{s:'🌵',t:'Кактус'}, {s:'🍄',t:'Гриб'}, {s:'🌲',t:'Дерево'}, {s:'🍁',t:'Лист'}, {s:'🌋',t:'Вулкан'}, {s:'🌩️',t:'Гроза'}, {s:'🧩',t:'Пазл'}, {s:'🎲',t:'Кубик'}, {s:'⚛️',t:'Атом'}, {s:'🚜',t:'Трактор'}, {s:'⚔️',t:'Мечі'}, {s:'🐘',t:'Слон'}, {s:'🌛',t:'Місяць'}, {s:'⭐',t:'Зірка'}, {s:'🪐',t:'Планета'}, {s:'🌌',t:'Галактика'}] }
+        ];
+const megaDefs = {
+            '🕷️': { t: 'complex', comps: [{t:'step', d:'king'}, {t:'slide_jump', d:'knight'}] },
+            '🚜': { t: 'complex', comps: [{t:'slide', d:[[0,-1]]}, {t:'step', d:[[1,0],[-1,0],[0,1]]}] },
+            '⚔️': { t: 'complex', comps: [{t:'slide', d:'bishop'}, {t:'jump', d:'knight'}] },
+            '🐘': { t: 'complex', comps: [{t:'step', d:'rook'}, {t:'jump', d:[[2,2],[2,-2],[-2,2],[-2,-2]]}] },
+            '🚀': { t: 'slide', dirs: [[0,-1]] },
+            '⚓': { t: 'slide', dirs: [[0,1]] },
+            '🏹': { t: 'slide', dirs: [[-1,-1],[1,-1]] },
+            '🎣': { t: 'slide', dirs: [[-1,1],[1,1]] },
+            '🧜': { t: 'slide', dirs: [[1,0],[-1,0]] },
+            '⚡': { t: 'slide', dirs: [[0,-1],[-1,-1],[1,-1]] },
+            '🦯': { t: 'slide', dirs: [[1,1],[-1,1],[1,-1],[-1,-1]], max: 2 },
+            '🕯️': { t: 'slide', dirs: [[1,0],[-1,0],[0,1],[0,-1]], max: 3 },
+            '🔱': { t: 'slide', dirs: [[0,-1],[-1,-1],[1,-1]] },
+            '🌊': { t: 'slide', dirs: [[0,-1]] },
+            '📜': { t: 'slide', dirs: [[0,1]] },
+            '🧬': { t: 'slide', dirs: [[1,-1],[-1,-1]] },
+            '🗡️': { t: 'slide', dirs: [[1,-1],[-1,-1]] },
+            '🌵': { t: 'step', dirs: 'king' },
+            '🍄': { t: 'step', dirs: [[1,1],[1,-1],[-1,1],[-1,-1]] },
+            '🌲': { t: 'step', dirs: [[0,1],[0,-1]] },
+            '🍁': { t: 'step', dirs: [[1,-1],[-1,-1]] },
+            '🌋': { t: 'complex', comps: [{t:'step', d:'king'}, {t:'jump', d:'knight'}] },
+            '🌩️': { t: 'complex', comps: [{t:'slide', d:'rook'}, {t:'jump', d:[[2,2],[2,-2],[-2,2],[-2,-2]]}] },
+            '❄️': { t: 'complex', comps: [{t:'step', d:'king'}, {t:'jump', d:[[2,0],[-2,0],[0,2],[0,-2]]}] },
+            '🔥': { t: 'complex', comps: [{t:'step', d:[[1,1],[1,-1],[-1,1],[-1,-1]]}, {t:'step', d:[[1,0],[-1,0],[0,1],[0,-1]], mul:2}] },
+            '💧': { t: 'complex', comps: [{t:'step', d:[[1,0],[-1,0],[0,1],[0,-1]]}, {t:'step', d:[[1,1],[1,-1],[-1,1],[-1,-1]], mul:2}] },
+            '🪨': { t: 'none' },
+            '😺': { t: 'jump', dirs: [[1,-2],[-1,-2]] },
+            '🐺': { t: 'jump', dirs: 'knight' },
+            '🦊': { t: 'step', dirs: [[1,1],[1,-1],[-1,1],[-1,-1]] },
+            '🐗': { t: 'jump', dirs: [[0,-2]] },
+            '🦍': { t: 'jump', dirs: [[3,1],[3,-1],[-3,1],[-3,-1],[1,3],[1,-3],[-1,3],[-1,-3]] },
+            '🐃': { t: 'jump', dirs: [[3,2],[3,-2],[-3,2],[-3,-2],[2,3],[2,-3],[-2,3],[-2,-3]] },
+            '🐊': { t: 'jump', dirs: [[3,3],[3,-3],[-3,3],[-3,-3]] },
+            '🐌': { t: 'step', dirs: [[1,-1],[-1,-1]] },
+            '🦑': { t: 'jump', dirs: [[4,0],[-4,0],[0,4],[0,-4]] },
+            '🐙': { t: 'complex', comps: [{t:'jump', d:'knight'}, {t:'jump', d:[[1,2],[1,-2],[-1,2],[-1,-2]]}] },
+            '🐝': { t: 'complex', comps: [{t:'jump', d:[[0,2],[0,-2],[2,0],[-2,0]]}, {t:'step', d:[[1,1],[1,-1],[-1,1],[-1,-1]]}] },
+            '🦋': { t: 'complex', comps: [{t:'step', d:[[1,1],[1,-1],[-1,1],[-1,-1]]}, {t:'jump', d:[[2,2],[2,-2],[-2,2],[-2,-2]]}] },
+            '🐢': { t: 'step', dirs: [[0,1],[0,-1],[1,0],[-1,0]] },
+            '🐕': { t: 'step', dirs: [[0,1],[0,-1],[1,0],[-1,0]] },
+            '🐿️': { t: 'jump', dirs: 'knight' },
+            '🐆': { t: 'slide', dirs: 'bishop' },
+            '🦓': { t: 'jump', dirs: [[3,2],[3,-2],[-3,2],[-3,-2],[2,3],[2,-3],[-2,3],[-2,-3]] },
+            '🐫': { t: 'jump', dirs: [[3,1],[3,-1],[-3,1],[-3,-1],[1,3],[1,-3],[-1,3],[-1,-3]] },
+            '🦒': { t: 'jump', dirs: [[4,1],[4,-1],[-4,1],[-4,-1],[1,4],[1,-4],[-1,4],[-1,-4]] },
+            '🦗': { t: 'jump', dirs: [[0,2],[0,-2],[2,0],[-2,0],[2,2],[2,-2],[-2,2],[-2,-2]] },
+            '🦇': { t: 'complex', comps: [{t:'jump', d:[[2,2],[2,-2],[-2,2],[-2,-2]]}, {t:'step', d:[[1,0],[-1,0],[0,1],[0,-1]]}] },
+            '🦀': { t: 'step', dirs: [[0,1],[0,-1],[2,0],[-2,0]] },
+            '🧨': { t: 'jump', dirs: [[0,2],[0,-2],[2,0],[-2,0], [2,2],[2,-2],[-2,2],[-2,-2]] },
+            '🦂': { t: 'complex', comps: [{t:'step', d:'king'}, {t:'jump', d:[[0,2],[0,-2],[2,0],[-2,0]]}] },
+            '🐍': { t: 'complex', comps: [{t:'step', d:[[0,1],[0,-1],[1,0],[-1,0]]}, {t:'step', d:[[1,1],[1,-1],[-1,1],[-1,-1]]}] },
+            '🦖': { t: 'complex', comps: [{t:'slide', d:[[0,-1]]}, {t:'step', d:[[1,0],[-1,0]]}] },
+            '🦈': { t: 'complex', comps: [{t:'slide', d:[[1,-1],[-1,-1]]}, {t:'slide', d:[[0,1]]}] },
+            '👾': { t: 'jump', dirs: [[1,3],[1,-3],[-1,3],[-1,-3],[3,1],[3,-1],[-3,1],[-3,-1]] },
+            '🧟': { t: 'step', dirs: 'king' },
+            '👺': { t: 'slide', dirs: 'bishop' },
+            '🐻': { t: 'step', dirs: 'king' },
+            '🔮': { t: 'jump', dirs: [[2,2],[2,-2],[-2,2],[-2,-2]] },
+            '💍': { t: 'complex', comps: [{t:'step', d:'king'}, {t:'jump', d:[[3,3],[3,-3],[-3,3],[-3,-3]]}] },
+            '⚗️': { t: 'jump', dirs: [[1,4],[1,-4],[-1,4],[-1,-4],[4,1],[4,-1],[-4,1],[-4,-1]] },
+            '💣': { t: 'jump', dirs: [[0,2],[0,-2],[2,0],[-2,0]] },
+            '🧩': { t: 'complex', comps: [{t:'jump', d:'knight'}, {t:'step', d:[[1,0],[-1,0],[0,1],[0,-1]]}] },
+            '🎲': { t: 'complex', comps: [{t:'step', d:[[1,1],[-1,-1]]}, {t:'jump', d:[[2,2],[-2,-2]]}, {t:'jump', d:[[3,3],[-3,-3]]}] },
+            '⚛️': { t: 'jump', dirs: [[2,2],[-2,-2],[2,-2],[-2,2], [3,3],[-3,-3],[3,-3],[-3,3]] },
+            '🛡️': { t: 'step', dirs: [[1,0],[-1,0],[0,1],[0,-1]] },
+            '🔪': { t: 'complex', comps: [{t:'step', d:[[1,1],[-1,-1],[-1,1],[-1,-1]]}, {t:'jump', d:[[2,2],[2,-2],[-2,2],[-2,-2]]}] },
+            '📼': { t: 'complex', comps: [{t:'slide', d:[[0,-1]]}, {t:'step', d:[[1,0],[-1,0]]}] },
+            '🤖': { t: 'complex', comps: [{t:'slide', d:[[0,-1]]}, {t:'slide', d:[[1,1],[-1,1]]}] },
+            '🛸': { t: 'complex', comps: [{t:'slide', d:[[1,0],[-1,0],[0,1],[0,-1]]}, {t:'jump', d:[[2,2],[2,-2],[-2,2],[-2,-2]]}] },
+            '🌛': { t: 'jump', dirs: [[2,3],[2,-3],[-2,3],[-2,-3],[3,2],[3,-2],[-3,2],[-3,-2]] },
+            '⭐': { t: 'jump', dirs: [[2,1],[2,-1],[-2,1],[-2,-1],[1,2],[1,-2],[-1,2],[-1,-2], [2,0],[-2,0],[0,2],[0,-2], [2,2],[-2,-2],[2,-2],[-2,2]] },
+            '🪐': { t: 'jump', dirs: [[0,3],[0,-3],[3,0],[-3,0]] },
+            '🌌': { t: 'jump', dirs: [[3,0],[-3,0],[0,3],[0,-3], [3,3],[-3,-3],[3,-3],[-3,3]] },
+            '👨': { t: 'step', dirs: 'king' },
+            '🏇': { t: 'complex', comps: [{t:'slide_jump', d:[[1,2],[1,-2],[-1,2],[-1,-2],[2,1],[2,-1],[-2,1],[-2,-1]]}] },
+            '🎎': { t: 'complex', comps: [{t:'slide', d:'rook'}, {t:'jump', d:'knight'}] },
+            '👸': { t: 'complex', comps: [{t:'slide', d:'bishop'}, {t:'jump', d:'knight'}] },
+            '🏺': { t: 'complex', comps: [{t:'slide', d:'queen'}, {t:'jump', d:'knight'}] },
+            '👮': { t: 'complex', comps: [{t:'step', d:'king'}, {t:'jump', d:'knight'}] },
+            '🌪️': { t: 'complex', comps: [{t:'jump', d:'knight'}, {t:'jump', d:[[2,2],[2,-2],[-2,2],[-2,-2]]}] },
+            '🧛': { t: 'complex', comps: [{t:'slide', d:'bishop'}, {t:'jump', d:[[3,0],[-3,0],[0,3],[0,-3]]}] },
+            '💂': { t: 'step', dirs: [[0,-1],[1,0],[-1,0],[1,-1],[-1,-1],[1,1],[-1,1]] },
+            '👷': { t: 'slide', dirs: 'rook', max: 2 },
+            '🧞': { t: 'slide', dirs: 'queen', max: 3 },
+            '🧚': { t: 'slide', dirs: 'bishop', max: 2 },
+            '☀️': { t: 'slide', dirs: 'queen', max: 2 },
+            '🧙': { t: 'complex', comps: [{t:'step', d:'king'}, {t:'jump', d:[[3,1],[3,-1],[-3,1],[-3,-1],[1,3],[1,-3],[-1,3],[-1,-3]]}] },
+            '🕵️': { t: 'complex', comps: [{t:'jump', d:[[2,2],[2,-2],[-2,2],[-2,-2]]}, {t:'step', d:[[1,0],[-1,0],[0,1],[0,-1]]}] },
+            '🥋': { t: 'complex', comps: [{t:'step', d:[[1,1],[-1,-1],[1,-1],[-1,1]]}, {t:'jump', d:[[2,0],[-2,0],[0,2],[0,-2]]}] },
+            '🥷': { t: 'jump', dirs: [[1,1],[1,-1],[-1,1],[-1,-1], [2,2],[2,-2],[-2,2],[-2,-2]] },
+            '🤴': { t: 'complex', comps: [{t:'step', d:'king'}, {t:'slide', d:'rook'}] },
+            '👼': { t: 'complex', comps: [{t:'step', d:'king'}, {t:'slide', d:'bishop'}] },
+            '🦄': { t: 'complex', comps: [{t:'slide', d:'bishop'}, {t:'jump', d:'knight'}] },
+            '🦅': { t: 'complex', comps: [{t:'slide', d:'rook'}, {t:'jump', d:'knight'}] },
+            '🐲': { t: 'complex', comps: [{t:'slide', d:'queen'}, {t:'jump', d:'knight'}] }
+        };
+
+        const CHESS_SVGS = {
+            'w_♔': `<g transform="scale(0.02197265625)"><path fill="#f9f9f9" d="m501.6 1811 48.4-354.4-260-269.2s-166.4-288.2 29.9-481C582.2 448.7 826 727.2 826 727.2l195.6-165.7 184 165.7s216.4-232.5 430.4-76c214 156.5 255.4 317.6 117.4 531.6-138.1 214-250.9 280.7-250.9 280.7L1558 1811z"/><path fill="#101010" d="M977 298v-95h94v95h107v95h-107v153q-48-16-94 0V393H870v-95zm47 314q-47 0-136 121-31-36-50-55 93-140 186-140 92 0 186 140-20 19-50 55-90-121-136-121zm-447 907-26 156 145-84zm410-206q-1-147-36.5-274.5T870 845q-45-88-131.5-153T570 627q-103 0-208 93T257 949q0 109 86.5 236T546 1408q212-88 441-95zm37 530H448l61-365q-325-280-326-535-1-159 125-274.5T575 553q78 0 158.5 47T876 719q61 74 98.5 164.5T1024 1034q12-60 49-150.5t99-164.5q61-72 142-119t159-47q140 0 266 115.5T1865 943q-2 255-326 535l61 365zm0-74h489l-50-298q-216-84-439-84t-439 84l-50 298zm447-250 26 156-145-84zm-410-206q229 7 441 95 115-96 202-223t87-236q0-136-105.5-229T1478 627q-83 0-169.5 65T1178 845q-46 66-81.5 193.5T1061 1313zm-176 233 141-84 137 86-141 84z"/></g>`,
+            'w_♕': `<g transform="scale(0.02197265625)"><path fill="#f9f9f9" d="m508.5 1815.6 48.4-356.7-216.3-554.6-135.8-20.7-16.1-126.5 112.7-43.8 78.3 73.7-18.4 99 246.2 197.8 112.8-568.3L635 428l78.3-108 112.8 43.7-23 161 223.2 474 244-490-66.8-105.9 92-92 105.9 73.6L1337 534l103.5 529.2 260-161-16-142.7 131-46 57.6 131.1-207 103.6-175 529.2 48.4 308.4z"/><path fill="#101010" d="M1024 1769h478q-53-130-43-280-100-39-213-67.5t-222-28.5q-110 0-223 28.5T589 1489q9 150-43 280zm0-450q111 0 223.5 26.5T1468 1413q17-105 60.5-212.5T1634 988l-220 155-123-601-267 555-267-555-123 601-220-155q61 105 104.5 212.5T580 1413q108-41 220.5-67.5T1024 1319zm0 524H441q114-231 57.5-456.5T296 937q-12 2-19 2-54 0-92.5-38.5T146 808t38.5-92.5T277 677t92.5 38.5T408 808q0 20-6 38-4 14-15 33l196 139 100-486q-64-31-72-103-5-44 29-91t88-53q54-5 96 29t48 88q7 68-46 114l198 412 198-412q-54-46-46-114 6-54 48-88t96-29q54 6 87.5 53t29.5 91q-9 72-72 103l100 486 196-139q-12-19-15-33-6-18-6-38 0-54 38.5-92.5T1771 677t92.5 38.5T1902 808t-38.5 92.5T1771 939q-7 0-19-2-147 224-203 449.5t58 456.5zM276 746q-62 0-62 62t62 62q63 0 63-62t-63-62zm466-394q-62 0-62 62t62 62 62-62-62-62M590 1519l119 72-134 86q19-86 15-158zm1182-773q-63 0-63 62t63 62q62 0 62-62t-62-62zm-466-394q-62 0-62 62t62 62 62-62-62-62zm152 1167-119 72 134 86q-20-86-15-158zm-573 47 139-83 139 86-139 84z"/></g>`,
+            'w_♗': `<g transform="scale(0.02197265625)"><path fill="#f9f9f9" d="m948 366 1-139 148-7 1 147zM564 860c114-267 456-443 456-443s392 176 476 502c-9 209-183 332-183 332l27 221-653 6 46-233s-230-171-169-385zm-101 790c175 6 355 23 425-142h92s0 190-88 246c-163 103-625 38-625 38s-15-146 196-142zm631 37-36-185 102 5s22 153 315 131c381-17 318 153 318 153l-483 5z"/><path fill="#101010" d="M1024 356q66 0 64-66 1-55-64-55-66 0-64 55-3 66 64 66zm0 1204q0 114-101 199t-223 84H205q0-117 65-179t142-62h250q51 0 88-7t71-60l10-16h76q-7 21-3 13-45 105-109 125t-146 19H409q-52 0-86 40t-34 53h424q66 0 159-65t93-185H624q67-116 72-229-114-119-162-223t-6-224q33-96 118-189t312-247q-17-11-46-36t-29-79q0-58 41-96t100-38q58 0 100 38t41 96q0 54-29 79t-46 36q226 153 311 247t119 189q42 119-6 224t-162 223q4 113 72 229h-341q0 120 93 185t159 65h424q0-13-34-53t-86-40h-240q-83 0-146-19t-109-125q4 8-3-13h76l10 16q33 53 70 60t89 7h250q76 0 142 62t65 179h-495q-123 0-223-84t-101-199zm0-114h283q-28-84-29-154-120-41-254-38-135-3-254 38-2 70-29 154zm0-267q159-1 285 42 189-180 142-346-60-193-427-431-368 238-427 431-48 166 142 346 125-43 285-42zm-47-361V714h94v104h95v89h-95v165h-94V907h-95v-89z"/></g>`,
+            'w_♘': `<g fill="none" fill-rule="evenodd" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M 22,10 C 32.5,11 38.5,18 38,39 L 15,39 C 15,30 25,32.5 23,18" style="fill:#ffffff; stroke:#000000;"/><path d="M 24,18 C 24.38,20.91 18.45,25.37 16,27 C 13,29 13.18,31.34 11,31 C 9.958,30.06 12.41,27.96 11,28 C 10,28 11.19,29.23 10,30 C 9,30 5.997,31 6,26 C 6,24 12,14 12,14 C 12,14 13.89,12.1 14,10.5 C 13.27,9.506 13.5,8.5 13.5,7.5 C 14.5,6.5 16.5,10 16.5,10 L 18.5,10 C 18.5,10 19.28,8.008 21,7 C 22,7 22,10 22,10" style="fill:#ffffff; stroke:#000000;"/><path d="M 9.5 25.5 A 0.5 0.5 0 1 1 8.5,25.5 A 0.5 0.5 0 1 1 9.5 25.5 z" style="fill:#000000; stroke:#000000;"/><path d="M 15 15.5 A 0.5 1.5 0 1 1 14,15.5 A 0.5 1.5 0 1 1 15 15.5 z" style="transform:matrix(0.866,0.5,-0.5,0.866,9.693,-5.173); fill:#000000; stroke:#000000;"/></g>`,
+            'w_♖': `<g transform="scale(0.02197265625)"><path fill="#f9f9f9" d="m435 1804 16-212 152-115 51-688-148-115-7-276 210-2 4 138 198 2 7-140 212-3 14 145 193-4 5-138h204l-7 285-145 106 42 693 172 124 19 207z"/><path fill="#101010" d="M1024 1501H643l5-74h752l5 74zm0-661H692l5-74h654l5 74zm0 1003H383l29-264 159-118 50-659-149-107-17-341h289v147h137V354h286v147h137V354h289l-17 341-149 107 50 659 159 118 29 264zm0-74h557l-15-149-161-119-54-735 152-109 13-230h-138v148h-285V427H955v148H670V427H532l13 230 152 109-54 735-161 119-15 149z"/></g>`,
+            'w_♙': `<g fill="#fff" fill-rule="evenodd" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 9c-2.21 0-4 1.79-4 4 0 .89.29 1.71.78 2.38C17.33 16.5 16 18.59 16 21c0 2.03.94 3.84 2.41 5.03-3 1.06-7.41 5.55-7.41 13.47h23c0-7.92-4.41-12.41-7.41-13.47 1.47-1.19 2.41-3 2.41-5.03 0-2.41-1.33-4.5-2.78-5.62.49-.67.78-1.49.78-2.38 0-2.21-1.79-4-4-4z"/></g>`,
+            'b_♚': `<g transform="scale(0.02197265625)"><path fill="#101010" d="m501.6 1811 48.4-354.4-260-269.2s-166.4-288.2 29.9-481C582.2 448.7 826 727.2 826 727.2l195.6-165.7 184 165.7s216.4-232.5 430.4-76c214 156.5 255.4 317.6 117.4 531.6-138.1 214-250.9 280.7-250.9 280.7L1558 1811z"/><path fill="#f9f9f9" d="M977 298v-95h94v95h107v95h-107v153q-48-16-94 0V393H870v-95zm47 314q-47 0-136 121-31-36-50-55 93-140 186-140 92 0 186 140-20 19-50 55-90-121-136-121zm-447 907-26 156 145-84zm410-206q-1-147-36.5-274.5T870 845q-45-88-131.5-153T570 627q-103 0-208 93T257 949q0 109 86.5 236T546 1408q212-88 441-95zm37 530H448l61-365q-325-280-326-535-1-159 125-274.5T575 553q78 0 158.5 47T876 719q61 74 98.5 164.5T1024 1034q12-60 49-150.5t99-164.5q61-72 142-119t159-47q140 0 266 115.5T1865 943q-2 255-326 535l61 365zm0-74h489l-50-298q-216-84-439-84t-439 84l-50 298zm447-250 26 156-145-84zm-410-206q229 7 441 95 115-96 202-223t87-236q0-136-105.5-229T1478 627q-83 0-169.5 65T1178 845q-46 66-81.5 193.5T1061 1313zm-176 233 141-84 137 86-141 84z"/></g>`,
+            'b_♛': `<g transform="scale(0.02197265625)"><path fill="#101010" d="m508.5 1815.6 48.4-356.7-216.3-554.6-135.8-20.7-16.1-126.5 112.7-43.8 78.3 73.7-18.4 99 246.2 197.8 112.8-568.3L635 428l78.3-108 112.8 43.7-23 161 223.2 474 244-490-66.8-105.9 92-92 105.9 73.6L1337 534l103.5 529.2 260-161-16-142.7 131-46 57.6 131.1-207 103.6-175 529.2 48.4 308.4z"/><path fill="#f9f9f9" d="M1024 1769h478q-53-130-43-280-100-39-213-67.5t-222-28.5q-110 0-223 28.5T589 1489q9 150-43 280zm0-450q111 0 223.5 26.5T1468 1413q17-105 60.5-212.5T1634 988l-220 155-123-601-267 555-267-555-123 601-220-155q61 105 104.5 212.5T580 1413q108-41 220.5-67.5T1024 1319zm0 524H441q114-231 57.5-456.5T296 937q-12 2-19 2-54 0-92.5-38.5T146 808t38.5-92.5T277 677t92.5 38.5T408 808q0 20-6 38-4 14-15 33l196 139 100-486q-64-31-72-103-5-44 29-91t88-53q54-5 96 29t48 88q7 68-46 114l198 412 198-412q-54-46-46-114 6-54 48-88t96-29q54 6 87.5 53t29.5 91q-9 72-72 103l100 486 196-139q-12-19-15-33-6-18-6-38 0-54 38.5-92.5T1771 677t92.5 38.5T1902 808t-38.5 92.5T1771 939q-7 0-19-2-147 224-203 449.5t58 456.5zM276 746q-62 0-62 62t62 62q63 0 63-62t-63-62zm466-394q-62 0-62 62t62 62 62-62-62-62M590 1519l119 72-134 86q19-86 15-158zm1182-773q-63 0-63 62t63 62q62 0 62-62t-62-62zm-466-394q-62 0-62 62t62 62 62-62-62-62zm152 1167-119 72 134 86q-20-86-15-158zm-573 47 139-83 139 86-139 84z"/></g>`,
+            'b_♜': `<g transform="scale(0.02197265625)"><path fill="#101010" d="m435 1804 16-212 152-115 51-688-148-115-7-276 210-2 4 138 198 2 7-140 212-3 14 145 193-4 5-138h204l-7 285-145 106 42 693 172 124 19 207z"/><path fill="#f9f9f9" d="M1024 1501H643l5-74h752l5 74zm0-661H692l5-74h654l5 74zm0 1003H383l29-264 159-118 50-659-149-107-17-341h289v147h137V354h286v147h137V354h289l-17 341-149 107 50 659 159 118 29 264zm0-74h557l-15-149-161-119-54-735 152-109 13-230h-138v148h-285V427H955v148H670V427H532l13 230 152 109-54 735-161 119-15 149z"/></g>`,
+            'b_♝': `<g transform="scale(0.02197265625)"><path fill="#101010" d="m948 366 1-139 148-7 1 147zM564 860c114-267 456-443 456-443s392 176 476 502c-9 209-183 332-183 332l27 221-653 6 46-233s-230-171-169-385zm-101 790c175 6 355 23 425-142h92s0 190-88 246c-163 103-625 38-625 38s-15-146 196-142zm631 37-36-185 102 5s22 153 315 131c381-17 318 153 318 153l-483 5z"/><path fill="#f9f9f9" d="M1024 356q66 0 64-66 1-55-64-55-66 0-64 55-3 66 64 66zm0 1204q0 114-101 199t-223 84H205q0-117 65-179t142-62h250q51 0 88-7t71-60l10-16h76q-7 21-3 13-45 105-109 125t-146 19H409q-52 0-86 40t-34 53h424q66 0 159-65t93-185H624q67-116 72-229-114-119-162-223t-6-224q33-96 118-189t312-247q-17-11-46-36t-29-79q0-58 41-96t100-38q58 0 100 38t41 96q0 54-29 79t-46 36q226 153 311 247t119 189q42 119-6 224t-162 223q4 113 72 229h-341q0 120 93 185t159 65h424q0-13-34-53t-86-40h-240q-83 0-146-19t-109-125q4 8-3-13h76l10 16q33 53 70 60t89 7h250q76 0 142 62t65 179h-495q-123 0-223-84t-101-199zm0-114h283q-28-84-29-154-120-41-254-38-135-3-254 38-2 70-29 154zm0-267q159-1 285 42 189-180 142-346-60-193-427-431-368 238-427 431-48 166 142 346 125-43 285-42zm-47-361V714h94v104h95v89h-95v165h-94V907h-95v-89z"/></g>`,
+            'b_♞': `<g fill="none" fill-rule="evenodd" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M 22,10 C 32.5,11 38.5,18 38,39 L 15,39 C 15,30 25,32.5 23,18" style="fill:#000000; stroke:#ffffff;"/><path d="M 24,18 C 24.38,20.91 18.45,25.37 16,27 C 13,29 13.18,31.34 11,31 C 9.958,30.06 12.41,27.96 11,28 C 10,28 11.19,29.23 10,30 C 9,30 5.997,31 6,26 C 6,24 12,14 12,14 C 12,14 13.89,12.1 14,10.5 C 13.27,9.506 13.5,8.5 13.5,7.5 C 14.5,6.5 16.5,10 16.5,10 L 18.5,10 C 18.5,10 19.28,8.008 21,7 C 22,7 22,10 22,10" style="fill:#000000; stroke:#ffffff;"/><path d="M 9.5 25.5 A 0.5 0.5 0 1 1 8.5,25.5 A 0.5 0.5 0 1 1 9.5 25.5 z" style="fill:#ffffff; stroke:#ffffff;"/><path d="M 15 15.5 A 0.5 1.5 0 1 1 14,15.5 A 0.5 1.5 0 1 1 15 15.5 z" style="transform:matrix(0.866,0.5,-0.5,0.866,9.693,-5.173); fill:#ffffff; stroke:#ffffff;"/></g>`,
+            'b_♟': `<g fill="#000" fill-rule="evenodd" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 9c-2.21 0-4 1.79-4 4 0 .89.29 1.71.78 2.38C17.33 16.5 16 18.59 16 21c0 2.03.94 3.84 2.41 5.03-3 1.06-7.41 5.55-7.41 13.47h23c0-7.92-4.41-12.41-7.41-13.47 1.47-1.19 2.41-3 2.41-5.03 0-2.41-1.33-4.5-2.78-5.62.49-.67.78-1.49.78-2.38 0-2.21-1.79-4-4-4z"/></g>`
+        };
+
+        const CLASSIC_MAP = {
+            '♔':'w_♔', '♕':'w_♕', '♖':'w_♖', '♗':'w_♗', '♘':'w_♘', '♙':'w_♙',
+            '♚':'b_♚', '♛':'b_♛', '♜':'b_♜', '♝':'b_♝', '♞':'b_♞', '♟':'b_♟'
+        };
+        const DIRS = {
+            rook: [[0,1],[0,-1],[1,0],[-1,0]],
+            bishop: [[1,1],[1,-1],[-1,1],[-1,-1]],
+            queen: [[0,1],[0,-1],[1,0],[-1,0],[1,1],[1,-1],[-1,1],[-1,-1]],
+            knight: [[1,2],[1,-2],[-1,2],[-1,-2],[2,1],[2,-1],[-2,1],[-2,-1]],
+            king: [[0,1],[0,-1],[1,0],[-1,0],[1,1],[1,-1],[-1,1],[-1,-1]]
+        };
+
+        const GRID_VOID = -999;
+
+        class SmoothChess {
+            constructor() {
+                this.canvas = document.getElementById('canvas');
+                this.ctx = this.canvas.getContext('2d', { alpha: false });
+
+                this.boardSize = 32;
+                this.cellSize = 60;
+
+                this.camera = { x: 0, y: 0, zoom: 1 };
+                
+                // Додаємо targetCamera для стабілізації
+                this.targetCamera = { x: 0, y: 0, zoom: 1 }; 
+                
+                this.lerpFactor = 0.1;
+                this.minZoom = 0.000001;
+                this.maxZoom = 5.0;
+
+                this.mouse = { x: 0, y: 0 };
+                this.isDragging = false;
+                this.isDraggingPiece = false;
+                this.draggedPiece = null;
+                this.lastMouse = { x: 0, y: 0 };
+                this.isPainting = false;
+                this.isGenerating = false;
+
+                this.customArrows = []; // Масив стрілок
+                this.rmbStart = null;   // Точка початку малювання
+                // --- PROMOTION STATE ---
+                this.promotionPending = null;
+
+                // --- KEYBOARD ---
+                this.keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
+
+                // Storage for MODIFIED pieces only.
+                this.grid = new Map();
+
+                // History for UNDO
+                this.moveHistory = [];
+
+                this.virtualGen = null;
+                this.virtualProps = { percent: 25, mix: 0 };
+
+                this.generationSeed = 0;
+
+                this.palette = [];
+                this.paletteMap = new Map();
+                this.pieceCount = 0;
+                this.kingPos = { w: null, b: null };
+
+                this.curSymbol = '♔';
+                this.curColor = 'w';
+
+                this.rulesEnabled = true;
+                this.turnModeEnabled = true;
+                this.currentTurn = 'w';
+                this.gameOver = false;
+                this.multiJumpSource = null;
+
+                this.highlightedMoves = [];
+                this.kingsInCheck = { w: null, b: null };
+
+                this.colors = {
+                    light: '#eeeed2',
+                    dark: 'rgba(80, 120, 60, 0.6)',
+                    border: '#3a4a2b',
+                    whiteP: '#ffffff',
+                    blackP: '#000000',
+                    neutralP: '#ffcc00',
+                    highlight: 'rgba(0, 255, 0, 0.5)',
+                    checkHighlight: 'rgba(255, 0, 0, 0.6)',
+                    mateHighlight: 'rgba(75, 0, 130, 0.9)'
+                };
+                this.colors.void = this.colors.light;
+
+                this.checkersSymbols = new Set(['⛀', '⛁', '⛂', '⛃']);
+                this.spriteCache = new Map();
+                this.lowResCache = new Map();
+                this.spriteSize = 100;
+
+                this.initUI();
+                this.init();
+                this.updateTurnIndicator();
+            }
+            // Новый метод: Находит конец пути, перепрыгивая через пустоту
+            // Гібридний пошук: Точний поблизу, швидкий далеко
+            findRayEnd(cx, cy, dx, dy, maxSteps) {
+                let x = cx;
+                let y = cy;
+                let steps = 0;
+                const limit = maxSteps || this.boardSize;
+                
+                // 1. ЧЕСНИЙ СКАНЕР (Ближня дистанція)
+                // Перевіряємо перші 100 клітинок реально. Це гарантує, що на звичайній дошці
+                // або при звичайному зумі ми ніколи не пропустимо фігуру.
+                // 100 операцій для JS — це миттєво.
+                const SCAN_LIMIT = 100;
+
+                while (steps < limit && steps < SCAN_LIMIT) {
+                    steps++;
+                    x += dx; y += dy;
+
+                    // Вихід за межі дошки
+                    if (x < 0 || x >= this.boardSize || y < 0 || y >= this.boardSize) {
+                        return { x: x - dx, y: y - dy, hit: false, edge: true };
+                    }
+
+                    // Перевірка фігури (Grid + Virtual)
+                    const target = this.getPiece(x, y);
+                    if (target) {
+                        const myPiece = this.getPiece(cx, cy);
+                        const isAlly = myPiece && target.c === myPiece.c;
+                        return { x, y, hit: true, ally: isAlly };
+                    }
+                }
+
+                // 2. ГІПЕР-СТРИБОК (Далека дистанція)
+                // Якщо ми пройшли 100 клітинок і нічого не знайшли, значить ми в "космосі".
+                // Тепер можна використати математику, щоб знайти край дошки або наступну фігуру з Grid.
+                
+                // Рахуємо скільки лишилось до краю
+                let distToEdge = this.boardSize;
+                if (dx > 0) distToEdge = this.boardSize - 1 - x;
+                else if (dx < 0) distToEdge = x;
+                if (dy > 0) distToEdge = Math.min(distToEdge, this.boardSize - 1 - y);
+                else if (dy < 0) distToEdge = Math.min(distToEdge, y);
+
+                // Обмежуємо лімітом ходу (якщо є)
+                let jumpDist = distToEdge;
+                if (maxSteps) jumpDist = Math.min(jumpDist, limit - steps);
+
+                // Перевіряємо, чи є на шляху реальні фігури (з Grid), щоб не перестрибнути їх
+                let bestGridDist = jumpDist;
+                let hitGrid = false;
+
+                for (const [key, val] of this.grid) {
+                    if (val === GRID_VOID) continue;
+                    const comma = key.indexOf(',');
+                    const px = parseInt(key.substring(0, comma));
+                    const py = parseInt(key.substring(comma + 1));
+
+                    // Вектор від поточної точки сканування (x, y)
+                    const vx = px - x;
+                    const vy = py - y;
+
+                    // Перевірка напрямку
+                    if (Math.sign(vx) !== dx && dx !== 0) continue;
+                    if (Math.sign(vy) !== dy && dy !== 0) continue;
+                    // Перевірка діагоналі
+                    if (vx * dy - vy * dx !== 0) continue;
+
+                    const d = Math.max(Math.abs(vx), Math.abs(vy));
+                    if (d < bestGridDist && d > 0) {
+                        bestGridDist = d;
+                        hitGrid = true;
+                    }
+                }
+
+                // Також перевіряємо стіну віртуальної армії (якщо летимо в неї)
+                if (this.virtualGen) {
+                    let rows = 0;
+                    if (this.virtualGen === 'chess960') rows = 2;
+                    else {
+                        rows = Math.floor(this.boardSize * (this.virtualProps.percent / 100));
+                        if (this.virtualGen !== 'checkers' && rows < 2) rows = 2;
+                    }
+                    const botLimit = this.boardSize - rows; // Початок нижньої армії
+
+                    // Якщо летимо вниз і ще не дійшли до нижньої армії
+                    if (dy > 0 && y < botLimit) {
+                        const distToArmy = botLimit - y;
+                        if (distToArmy < bestGridDist) {
+                            bestGridDist = distToArmy;
+                            hitGrid = true; // Вважаємо це влучанням
+                        }
+                    }
+                    // Для верхньої армії не перевіряємо, бо ми летимо від неї (y збільшується або ми вже пройшли)
+                    // (Спрощення для швидкості)
+                }
+
+                // Стрибаємо
+                const finalX = x + dx * bestGridDist;
+                const finalY = y + dy * bestGridDist;
+
+                // Перевіряємо фінальну точку (чи це ворог)
+                const finalTarget = this.getPiece(finalX, finalY);
+                const startPiece = this.getPiece(cx, cy);
+                const finalAlly = finalTarget && startPiece && finalTarget.c === startPiece.c;
+
+                return { x: finalX, y: finalY, hit: hitGrid || !!finalTarget, ally: finalAlly };
+            }
+
+            calculateHighlights(piece, cx, cy) {
+                if (!this.rulesEnabled) return;
+                
+                this.highlightedMoves = [];
+                const type = piece.s;
+                const isWhite = piece.c === 'w';
+
+                // --- 1. Слайдери (Тура, Слон, Ферзь) ---
+                const castRay = (dx, dy, maxLimit = this.boardSize) => {
+                    const end = this.findRayEnd(cx, cy, dx, dy, maxLimit);
+                    
+                    // Довжина променя (математична дистанція)
+                    let dist = Math.max(Math.abs(end.x - cx), Math.abs(end.y - cy));
+
+                    // Якщо влучили, скорочуємо лінію на 1, щоб не малювати НА фігурі
+                    if (end.hit || end.ally) dist--;
+
+                    if (dist > 0) {
+                        this.highlightedMoves.push({
+                            type: 'ray', cx: cx, cy: cy, dx: dx, dy: dy, len: dist
+                        });
+                    }
+
+                    // Червона крапка для атаки
+                    if (end.hit && !end.ally) {
+                        this.highlightedMoves.push({ type: 'point', c: end.x, r: end.y, capture: true });
+                    }
+                };
+
+                // --- 2. Стрибуни (Кінь, Король) ---
+                // ... (початок методу calculateHighlights) ...
+
+                // --- 2. Стрибуни (Кінь, Король) ---
+                const checkJump = (dx, dy) => {
+                    const tx = cx + dx; const ty = cy + dy;
+                    if (tx >= 0 && tx < this.boardSize && ty >= 0 && ty < this.boardSize) {
+                        const target = this.getPiece(tx, ty);
+                        if (!target) {
+                             this.highlightedMoves.push({ type: 'point', c: tx, r: ty });
+                        } else if (target.c !== piece.c) {
+                             this.highlightedMoves.push({ type: 'point', c: tx, r: ty, capture: true });
+                        }
+                    }
+                };
+
+                // ... (код для шашок і слайдерів) ...
+                if (['♘','♞'].includes(type)) { [[1,2],[1,-2],[-1,2],[-1,-2],[2,1],[2,-1],[-2,1],[-2,-1]].forEach(d => checkJump(d[0], d[1])); }
+                
+                // --- ВИПРАВЛЕННЯ ДЛЯ КОРОЛЯ (Прибираємо checkJump, додаємо перевірку атаки) ---
+                if (['♔','♚'].includes(type)) { 
+                    for(let i=-1; i<=1; i++) {
+                        for(let j=-1; j<=1; j++) {
+                            if(i===0 && j===0) continue;
+                            const tx = cx + i; 
+                            const ty = cy + j;
+                            
+                            if (tx >= 0 && tx < this.boardSize && ty >= 0 && ty < this.boardSize) {
+                                const target = this.getPiece(tx, ty);
+                                if (!target || target.c !== piece.c) {
+                                    // Перевіряємо, чи хід безпечний (не під шах)
+                                    if (this.rulesEnabled) {
+                                        if (this.simulateMoveAndCheckSafety(piece, cx, cy, tx, ty)) {
+                                            this.highlightedMoves.push({ type: 'point', c: tx, r: ty, capture: !!target });
+                                        }
+                                    } else {
+                                        this.highlightedMoves.push({ type: 'point', c: tx, r: ty, capture: !!target });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                // -----------------------------------------------------------------------------
+
+               
+                if (megaDefs[type]) {
+                     const def = megaDefs[type];
+                     const FLIP_Y_LIST = ['🚀','⚓','🏹','🎣','😺','🐗','🌊','🗡️','📜'];
+                     const processComp = (comp) => {
+                        const dirs = this._resolveDirs(comp.d || comp.dirs);
+                        const limit = comp.max || this.boardSize;
+                        const moveType = comp.t || def.t;
+                        for (const d of dirs) {
+                            let dirX = d[0], dirY = d[1];
+                            if (!isWhite && FLIP_Y_LIST.includes(type)) dirY = -dirY;
+                            if (moveType === 'slide' || moveType === 'slide_jump') castRay(dirX, dirY, limit);
+                            else { let mul = comp.mul || 1; checkJump(dirX * mul, dirY * mul); }
+                        }
+                     };
+                     if (def.t === 'complex') def.comps.forEach(c => processComp(c)); else processComp(def);
+                }
+
+                // --- ПІШАКИ (Сувора перевірка) ---
+                if (['♙','♟'].includes(type)) {
+                    const dir = isWhite ? -1 : 1;
+                    
+                    // 1. Вперед на 1 (якщо пусто)
+                    const fwd1 = this.getPiece(cx, cy + dir);
+                    if (!fwd1) {
+                        this.highlightedMoves.push({ type: 'point', c: cx, r: cy + dir });
+                        
+                        // 2. Вперед на 2 (якщо не ходив і пусто)
+                        if (!piece.hasMoved) {
+                            const fwd2 = this.getPiece(cx, cy + dir * 2);
+                            if (!fwd2) {
+                                this.highlightedMoves.push({ type: 'point', c: cx, r: cy + dir * 2 });
+                            }
+                        }
+                    }
+
+                    // 3. Атаки (якщо ворог)
+                    [1, -1].forEach(dx => {
+                        const tx = cx + dx; const ty = cy + dir;
+                        const t = this.getPiece(tx, ty);
+                        if (t && t.c !== piece.c) {
+                            this.highlightedMoves.push({ type: 'point', c: tx, r: ty, capture: true });
+                        }
+                    });
+                }
+            }
+            
+            initUI() {
+                const container = document.getElementById('pieceContainer');
+                container.innerHTML = '';
+
+                PIECE_CATEGORIES.forEach(cat => {
+                    const block = document.createElement('div');
+                    block.className = 'category-block';
+                    if(cat.bg) block.style.backgroundColor = cat.bg;
+                    const header = document.createElement('div');
+                    header.className = 'grid-header';
+                    header.innerText = cat.name;
+                    block.appendChild(header);
+                    const grid = document.createElement('div');
+                    grid.className = 'piece-grid';
+
+                    cat.items.forEach(item => {
+                        const btn = document.createElement('button');
+                        btn.className = `piece-btn ${item.cls || ''}`;
+                        if(item.s === '❌') btn.classList.add('eraser');
+
+                        btn.innerText = item.s;
+                        btn.title = item.t;
+                        btn.dataset.s = item.s;
+                        btn.dataset.c = item.color || 'w';
+                        btn.addEventListener('click', () => {
+                            document.querySelectorAll('.piece-btn').forEach(b => b.classList.remove('selected'));
+                            btn.classList.add('selected');
+                            this.curSymbol = btn.dataset.s;
+                            this.curColor = btn.dataset.c;
+                        });
+                        if(item.s === '♔' && item.color !== 'b') btn.classList.add('selected');
+                        grid.appendChild(btn);
+                    });
+                    block.appendChild(grid);
+                    container.appendChild(block);
+                });
+            }
+
+            init() {
+                this.setSize(32);
+                this.resize();
+                window.addEventListener('resize', () => { this.resize(); });
+                this.canvas.addEventListener('wheel', e => this.onWheel(e), { passive: false });
+                this.canvas.addEventListener('mousedown', e => this.onMouseDown(e));
+                window.addEventListener('mousemove', e => this.onMouseMove(e));
+                window.addEventListener('mouseup', e => this.onMouseUp(e));
+                this.canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+                window.addEventListener('keydown', e => {
+                    if (e.key === 'Delete') {
+                        this.undoMove();
+                    } else {
+                        this.onKeyDown(e);
+                        if(this.keys.hasOwnProperty(e.code)) {
+                            this.keys[e.code] = true;
+                            e.preventDefault();
+                        }
+                    }
+                });
+                window.addEventListener('keyup', e => {
+                    if(this.keys.hasOwnProperty(e.code)) this.keys[e.code] = false;
+                });
+
+                document.getElementById('boardSize').addEventListener('change', e => this.setSize(e.target.value));
+                document.getElementById('zoomSlider').addEventListener('input', e => {
+                    this.targetZoom = Math.pow(10, parseFloat(e.target.value));
+                });
+                document.getElementById('fantasyMix').addEventListener('input', (e) => {
+                    document.getElementById('fantasyPercentDisplay').innerText = e.target.value + '%';
+                });
+
+                this.lastTime = performance.now();
+                this.animate();
+            }
+
+            resize() {
+                this.canvas.width = window.innerWidth;
+                this.canvas.height = window.innerHeight;
+                this.centerBoard();
+            }
+
+            getPaletteId(s, c) {
+                const key = s + c;
+                if (!this.paletteMap.has(key)) {
+                    this.palette.push({ s, c });
+                    this.paletteMap.set(key, this.palette.length);
+                }
+                return this.paletteMap.get(key);
+            }
+
+            getKey(c, r) {
+                return c + "," + r;
+            }
+
+            getCoordString(c, r) {
+                let label = "";
+                let index = c + 1;
+                while (index > 0) {
+                    let rem = (index - 1) % 26;
+                    label = String.fromCharCode(97 + rem) + label;
+                    index = Math.floor((index - 1) / 26);
+                }
+                return label + (this.boardSize - r);
+            }
+
+            addLogToUI(pieceIcon, startCoord, endCoord, isCapture) {
+                const list = document.getElementById('logList');
+                // Remove default placeholder if exists
+                if (list.children.length === 1 && list.children[0].innerText === 'Ходів ще немає') {
+                    list.innerHTML = '';
+                }
+
+                const div = document.createElement('div');
+                div.className = 'log-entry';
+
+                const moveText = `<span class="move">${pieceIcon}</span> ${startCoord} → ${endCoord}`;
+                const capText = isCapture ? `<span class="capture">⚔️</span>` : '';
+
+                div.innerHTML = `${moveText} ${capText}`;
+                list.prepend(div); // Newest first
+            }
+
+            removeLastLogEntry() {
+                const list = document.getElementById('logList');
+                if (list.children.length > 0) {
+                    list.removeChild(list.firstElementChild);
+                }
+                if (list.children.length === 0) {
+                    list.innerHTML = '<div class="log-entry" style="color:#999; justify-content:center;">Ходів ще немає</div>';
+                }
+            }
+
+            setSize(n) {
+                // Прибираємо верхнє обмеження. 
+                // Залишаємо лише мінімальне (2), щоб не зламати гру від'ємними числами.
+                this.boardSize = Math.max(2, parseInt(n) || 32);
+                
+                // Оновлюємо значення в полі вводу
+                document.getElementById('boardSize').value = this.boardSize;
+
+                this.grid.clear();
+                this.moveHistory = [];
+                this.virtualGen = null;
+                this.promotionPending = null;
+                document.getElementById('promotionOverlay').style.display = 'none';
+
+                this.resetGame();
+                this.centerBoard();
+            }
+
+            centerBoard() {
+                const boardPx = this.boardSize * this.cellSize;
+                const screenW = this.canvas.width;
+                const screenH = this.canvas.height;
+                
+                const fitScaleX = screenW / boardPx;
+                const fitScaleY = screenH / boardPx;
+                const fitZoom = Math.min(fitScaleX, fitScaleY);
+
+                this.minZoom = fitZoom * 0.8; 
+                if (this.minZoom > this.maxZoom) this.minZoom = this.maxZoom / 2;
+
+                const startZoom = fitZoom * 0.95;
+                
+                // Центруємо
+                const startX = (screenW - boardPx * startZoom) / 2;
+                const startY = (screenH - boardPx * startZoom) / 2;
+
+                // Встановлюємо значення миттєво
+                this.camera.x = startX;
+                this.camera.y = startY;
+                this.camera.zoom = startZoom;
+
+                // ВАЖЛИВО: Оновлюємо також цілі
+                this.targetCamera.x = startX;
+                this.targetCamera.y = startY;
+                this.targetCamera.zoom = startZoom;
+
+                const slider = document.getElementById('zoomSlider');
+                slider.min = Math.log10(this.minZoom);
+                slider.value = Math.log10(startZoom);
+            }
+
+            clampCamera() {
+                // ВІЛЬНЕ ПЕРЕМІЩЕННЯ З МЕЖАМИ (АНТИ-ПУСТОТА)
+                
+                const boardPx = this.boardSize * this.cellSize * this.camera.zoom;
+                const screenW = this.canvas.width;
+                const screenH = this.canvas.height;
+
+                // "Страхувальний трос":
+                // Ми хочемо, щоб хоча б 150 пікселів дошки (або половина її розміру, якщо вона дуже мала)
+                // завжди залишалися видимими на екрані.
+                const safeZone = Math.min(150, boardPx / 2);
+
+                // Розрахунок меж:
+                // 1. Min X: Правий край дошки не може піти за лівий край екрану (залишаємо safeZone)
+                //    Формула: camera.x + boardPx >= safeZone  =>  camera.x >= safeZone - boardPx
+                const minX = safeZone - boardPx;
+
+                // 2. Max X: Лівий край дошки не може піти за правий край екрану
+                //    Формула: camera.x <= screenW - safeZone
+                const maxX = screenW - safeZone;
+
+                // 3. Те саме для Y (Вертикаль)
+                const minY = safeZone - boardPx;
+                const maxY = screenH - safeZone;
+
+                // Застосовуємо ліміти до ЦІЛІ (для анімації)
+                if (this.targetCamera.x < minX) this.targetCamera.x = minX;
+                if (this.targetCamera.x > maxX) this.targetCamera.x = maxX;
+                if (this.targetCamera.y < minY) this.targetCamera.y = minY;
+                if (this.targetCamera.y > maxY) this.targetCamera.y = maxY;
+
+                // Застосовуємо ліміти до ПОТОЧНОЇ камери (для миттєвої реакції мишки)
+                if (this.camera.x < minX) this.camera.x = minX;
+                if (this.camera.x > maxX) this.camera.x = maxX;
+                if (this.camera.y < minY) this.camera.y = minY;
+                if (this.camera.y > maxY) this.camera.y = maxY;
+            }
+            onWheel(e) {
+                if (this.promotionPending) return;
+                e.preventDefault();
+
+                // 1. Де мишка зараз (на екрані)
+                const mx = e.clientX;
+                const my = e.clientY;
+
+                // 2. Де мишка у "Світі" (на дошці) з ПОТОЧНИМ зумом
+                // Важливо використовувати this.camera (поточне), а не target
+                const worldX = (mx - this.camera.x) / this.camera.zoom;
+                const worldY = (my - this.camera.y) / this.camera.zoom;
+
+                // 3. Рахуємо НОВИЙ зум
+                const sensitivity = 0.0015; // Чутливість
+                let newZoom = this.targetCamera.zoom * (1 - e.deltaY * sensitivity);
+                newZoom = Math.max(this.minZoom, Math.min(this.maxZoom, newZoom));
+
+                // 4. Оновлюємо ціль для зуму
+                this.targetCamera.zoom = newZoom;
+
+                // 5. МАГІЯ СТАБІЛІЗАЦІЇ:
+                // Рахуємо, де повинна бути камера (X, Y), щоб точка worldX 
+                // залишилася точно під курсором (mx) при НОВОМУ зумі (newZoom).
+                // Формула: Screen = Cam + World * Zoom  =>  Cam = Screen - World * Zoom
+                
+                this.targetCamera.x = mx - worldX * newZoom;
+                this.targetCamera.y = my - worldY * newZoom;
+            }
+
+            isDarkSquare(c, r) { return (c + r) % 2 !== 0; }
+
+            getPieceSprite(symbol, color) {
+                const key = `${symbol}_${color}`;
+                if (this.spriteCache.has(key)) return this.spriteCache.get(key);
+
+                // Збільшуємо роздільну здатність для чіткості
+                this.spriteSize = 256;
+
+                const c = document.createElement('canvas');
+                c.width = this.spriteSize;
+                c.height = this.spriteSize;
+                const ctx = c.getContext('2d');
+
+                const svgKey = CLASSIC_MAP[symbol];
+
+                if (svgKey && ((color === 'w' && svgKey.startsWith('w')) || (color === 'b' && svgKey.startsWith('b')))) {
+                    const svgContent = CHESS_SVGS[svgKey];
+                    const img = new Image();
+
+                    // ВАЖЛИВО: Додаємо width/height і viewBox 0 0 45 45, щоб фігура розтягнулась на весь спрайт
+                    const svgData = `<svg xmlns="http://www.w3.org/2000/svg" width="${this.spriteSize}" height="${this.spriteSize}" viewBox="0 0 45 45">${svgContent}</svg>`;
+                    const blob = new Blob([svgData], {type: 'image/svg+xml'});
+                    const url = URL.createObjectURL(blob);
+
+                    img.onload = () => {
+                        ctx.clearRect(0, 0, this.spriteSize, this.spriteSize);
+                        ctx.drawImage(img, 0, 0, this.spriteSize, this.spriteSize);
+                        URL.revokeObjectURL(url);
+                    };
+                    img.src = url;
+
+                } else {
+                    // Для фентезі фігур
+                    const isWhite = color === 'w'; const isBlack = color === 'b';
+                    ctx.font = `bold ${this.spriteSize * 0.8}px Arial`;
+                    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                    ctx.lineWidth = this.spriteSize * 0.05; ctx.lineJoin = 'round';
+                    const cx = this.spriteSize / 2; const cy = this.spriteSize / 2 * 1.1;
+
+                    if (isWhite) ctx.strokeStyle = '#000000';
+                    else if (isBlack) ctx.strokeStyle = '#ffffff';
+                    else ctx.strokeStyle = '#333333';
+
+                    ctx.strokeText(symbol, cx, cy);
+                    ctx.fillStyle = isWhite ? this.colors.whiteP : (isBlack ? this.colors.blackP : this.colors.neutralP);
+                    ctx.fillText(symbol, cx, cy);
+                }
+
+                this.spriteCache.set(key, c);
+                return c;
+            }
+
+            getLowResSprite(symbol, color) {
+                const key = `${symbol}_${color}_lo`;
+                if (this.lowResCache.has(key)) return this.lowResCache.get(key);
+
+                // Збільшуємо якість "низької роздільної здатності"
+                const size = 128;
+                const c = document.createElement('canvas');
+                c.width = size; c.height = size;
+                const ctx = c.getContext('2d');
+
+                const svgKey = CLASSIC_MAP[symbol];
+
+                if (svgKey && ((color === 'w' && svgKey.startsWith('w')) || (color === 'b' && svgKey.startsWith('b')))) {
+                    const svgContent = CHESS_SVGS[svgKey];
+                    const img = new Image();
+                    // Теж саме: фіксуємо розмір SVG під канвас
+                    const svgData = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 45 45">${svgContent}</svg>`;
+                    const blob = new Blob([svgData], {type: 'image/svg+xml'});
+                    const url = URL.createObjectURL(blob);
+
+                    img.onload = () => {
+                        ctx.clearRect(0,0,size,size);
+                        ctx.drawImage(img, 0, 0, size, size);
+                        URL.revokeObjectURL(url);
+                    };
+                    img.src = url;
+                } else {
+                    const isWhite = color === 'w'; const isBlack = color === 'b';
+                    ctx.font = `${size}px Arial`;
+                    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                    const cx = size / 2; const cy = size / 2 * 1.1;
+                    ctx.fillStyle = isWhite ? '#fff' : (isBlack ? '#000' : '#fa0');
+                    ctx.fillText(symbol, cx, cy);
+                }
+
+                this.lowResCache.set(key, c);
+                return c;
+            }
+
+            pseudoRandom(x, y) {
+                return Math.abs(Math.sin(x * 12.9898 + y * 78.233) * 43758.5453) % 1;
+            }
+
+            getPiece(c, r) {
+                if (c < 0 || c >= this.boardSize || r < 0 || r >= this.boardSize) return null;
+
+                const key = this.getKey(c, r);
+                const val = this.grid.get(key);
+
+                if (val !== undefined) {
+                    if (val === GRID_VOID) return null;
+                    const id = val & 0xFFFF;
+                    const hasMoved = !!((val >> 16) & 1);
+                    const p = this.palette[id - 1];
+                    return { x: c, y: r, s: p.s, c: p.c, hasMoved: hasMoved };
+                }
+
+                if (this.virtualGen) {
+                    return this.getVirtualPiece(c, r);
+                }
+
+                return null;
+            }
+getVirtualPiece(c, r) {
+                if (this.virtualGen === 'checkers') {
+                     const rowsCalc = Math.floor(this.boardSize * (this.virtualProps.percent / 100));
+                     const armyHeight = rowsCalc;
+                     if (!this.isDarkSquare(c, r)) return null;
+
+                     if (r < armyHeight) return { x:c, y:r, s:'⛂', c:'b' };
+                     if (r >= this.boardSize - armyHeight) return { x:c, y:r, s:'⛀', c:'w' };
+                     return null;
+                }
+
+                const rowsCalc = Math.floor(this.boardSize * (this.virtualProps.percent / 100));
+                const armyHeight = Math.max(2, rowsCalc);
+                const whiteStart = this.boardSize - armyHeight;
+
+                let relativeRow = -1;
+                let color = '';
+
+                // Identify if this row belongs to an army and normalize row index
+                if (r < armyHeight) {
+                    color = 'b';
+                    relativeRow = r;
+                } else if (r >= whiteStart) {
+                    color = 'w';
+                    relativeRow = (this.boardSize - 1) - r; // Mirror row index
+                } else {
+                    return null;
+                }
+
+                // --- ВИПРАВЛЕННЯ ТУТ: Примусово встановлюємо правильний Y ---
+                const p = this.generateProceduralPiece(c, relativeRow, color, armyHeight);
+                if (p) p.y = r; 
+                return p;
+            }
+            
+            generateProceduralPiece(c, relativeRow, color, height) {
+                // 1. Визначаємо центр для Короля (безпека)
+                let armyCenterCol = Math.floor(this.boardSize / 2);
+
+                if (this.virtualGen === '3player') {
+                    if (color === 'b') armyCenterCol = Math.floor((this.boardSize / 2) / 2);
+                    else if (color === 'r') {
+                        const mid = Math.floor(this.boardSize / 2);
+                        armyCenterCol = mid + Math.floor((this.boardSize - mid) / 2);
+                    }
+                }
+
+                // Завжди ставимо "головного" короля по центру (для логіки гри)
+                if (c === armyCenterCol && relativeRow === 0) {
+                    return { x: c, y: -1, s: color === 'w' ? '♔' : '♚', c: color };
+                }
+                
+                // --- НОВА ЛОГІКА ДЛЯ АРМІЇ (Щоб не зависало) ---
+                if (this.virtualGen === 'army') {
+                    // Половина рядів - офіцери, половина - пішаки
+                    const officerRows = Math.floor(height / 2);
+                    
+                    // Якщо це передні ряди - ставимо Пішаків
+                    if (relativeRow >= officerRows) {
+                         return { x: c, y: -1, s: color === 'w' ? '♙' : '♟', c: color };
+                    }
+                    
+                    // Якщо це задні ряди - ставимо патерн Офіцерів
+                    const pattern = ['♖', '♘', '♗', '♕', '♔', '♗', '♘', '♖'];
+                    const mirrorMap = { '♖':'♜', '♘':'♞', '♗':'♝', '♕':'♛', '♔':'♚' };
+                    
+                    let sym = pattern[c % 8]; // Повторення кожні 8 клітинок
+                    if (color !== 'w') sym = mirrorMap[sym]; // Для чорних/червоних
+                    
+                    return { x: c, y: -1, s: sym, c: color };
+                }
+                // -----------------------------------------------
+
+                // Стандартні пішаки для інших режимів (Classic/Fantasy)
+                if (relativeRow === height - 1) {
+                    return { x: c, y: -1, s: color === 'w' ? '♙' : '♟', c: color };
+                }
+
+                // Логіка для Classic/Fantasy (Random)
+                const classicMajors = ['♖', '♘', '♗', '♕'];
+                const mirrorMap = { '♖': '♜', '♘': '♞', '♗': '♝', '♕': '♛' };
+                const fantasyMajors = ['🦄', '🦅', '🐲', '🕷️', '🐢', '🧨', '🐫', '🦓', '🦒', '🐘', '🚜', '⚔️', '🛡️', '👨', '🦗', '🦇', '🏹', '🐻', '🐕', '🦀', '🐆', '🐿️', '🤴', '👼', '👺', '🍄', '🌵', '🌲', '🍁', '🌋', '🌊', '🌪️', '🌩️', '🦂', '🐍', '🦖', '🦈', '🐝', '🦋', '🐙', '👾', '🗡️', '🔮', '📜', '💍', '⚗️', '💣', '🧩', '🎲', '🧬', '⚛️', ...Object.keys(megaDefs)];
+                
+                const seed = c * 49297 + relativeRow * 9301 + this.generationSeed;
+                const rnd = Math.abs(Math.sin(seed) * 10000) % 100;
+                let symbol;
+
+                if (this.virtualGen === 'fantasy' && rnd < this.virtualProps.mix) {
+                    const idx = Math.floor(this.pseudoRandom(c + this.generationSeed, relativeRow * 5) * fantasyMajors.length);
+                    symbol = fantasyMajors[idx];
+                } else {
+                    const idx = Math.floor(this.pseudoRandom(c + this.generationSeed, relativeRow * 7) * classicMajors.length);
+                    let base = classicMajors[idx];
+                    if (color !== 'w') symbol = mirrorMap[base];
+                    else symbol = base;
+                }
+                return { x: c, y: -1, s: symbol, c: color };
+            }
+
+            setPiece(c, r, data) {
+                if (c < 0 || c >= this.boardSize || r < 0 || r >= this.boardSize) return;
+                const key = this.getKey(c, r);
+
+                if (!data) {
+                    if (this.virtualGen) {
+                        this.grid.set(key, GRID_VOID);
+                    } else {
+                        this.grid.delete(key);
+                    }
+                    return;
+                }
+
+                const paletteId = this.getPaletteId(data.s, data.c);
+                const hasMovedBit = (data.hasMoved ? 1 : 0) << 16;
+                this.grid.set(key, paletteId | hasMovedBit);
+
+                if (data.s === '♔' && data.c === 'w') this.kingPos.w = {c, r};
+                if (data.s === '♚' && data.c === 'b') this.kingPos.b = {c, r};
+            }
+
+            removePiece(c, r) { this.setPiece(c, r, null); }
+            
+            updateLogUI() {
+                const tbody = document.getElementById('logTableBody');
+                if (!tbody) return;
+                tbody.innerHTML = '';
+                
+                let moveCount = 1;
+                let currentRow = null;
+
+                this.moveHistory.forEach((step) => {
+                    const not = step.notation;
+                    if (!not) return; // Пропускаємо старі/биті записи
+
+                    const moveHTML = `<span class="move-icon">${not.icon}</span><span class="move-coords">${not.start}→${not.end}</span>${not.cap ? '<span class="move-cap">x</span>' : ''}`;
+
+                    if (step.turn === 'w') {
+                        // Хід білих - створюємо новий рядок
+                        currentRow = document.createElement('tr');
+                        currentRow.innerHTML = `<td class="log-num">${moveCount}.</td><td>${moveHTML}</td><td></td>`;
+                        tbody.appendChild(currentRow);
+                    } else {
+                        // Хід чорних
+                        if (!currentRow) {
+                            // Якщо історія почалася з чорних (рідкісний випадок)
+                            currentRow = document.createElement('tr');
+                            currentRow.innerHTML = `<td class="log-num">${moveCount}.</td><td>...</td><td></td>`;
+                            tbody.appendChild(currentRow);
+                        }
+                        currentRow.children[2].innerHTML = moveHTML;
+                        moveCount++;
+                        currentRow = null;
+                    }
+                });
+                
+                // Прокрутка вниз
+                const container = document.getElementById('logContainer');
+                if(container) container.scrollTop = container.scrollHeight;
+            }
+
+            resetGame() {
+                this.customArrows = [];
+
+                this.grid.clear();
+                this.moveHistory = [];
+                this.pieceCount = 0;
+                this.currentTurn = 'w'; this.gameOver = false;
+                this.multiJumpSource = null;
+                this.kingsInCheck = { w: null, b: null };
+                this.kingPos = { w: null, b: null };
+                this.promotionPending = null;
+                document.getElementById('promotionOverlay').style.display = 'none';
+                document.getElementById('gameOverOverlay').style.display = 'none';
+
+                this.updateUI(); 
+                this.updateTurnIndicator();
+                this.updateLogUI(); // <--- ВАЖЛИВО: Оновлення таблиці
+            }
+
+            fillCheckers() {
+                let percent = parseFloat(document.getElementById('fillPercent').value);
+                if (isNaN(percent) || percent < 1) percent = 1; if (percent > 50) percent = 50;
+                this.resetGame();
+                this.virtualGen = 'checkers';
+                this.virtualProps.percent = percent;
+                this.updateUI();
+            }
+
+            fillClassic() {
+                let percent = parseFloat(document.getElementById('fillPercent').value);
+                if (isNaN(percent) || percent < 1) percent = 1; if (percent > 50) percent = 50;
+                this.resetGame();
+                this.generationSeed = Math.random() * 100000; // Change seed
+                this.virtualGen = 'classic';
+                this.virtualProps.percent = percent;
+                this.virtualProps.mix = 0;
+                this.updateUI();
+            }
+            fillArmy() {
+                // Отримуємо відсоток заповнення
+                let percent = parseFloat(document.getElementById('fillPercent').value);
+                if (isNaN(percent) || percent < 1) percent = 1; 
+                if (percent > 50) percent = 50;
+
+                this.resetGame();
+                
+                // ВМИКАЄМО ВІРТУАЛЬНУ ГЕНЕРАЦІЮ ЗАМІСТЬ ЦИКЛУ
+                this.virtualGen = 'army'; 
+                this.virtualProps.percent = percent;
+                
+                this.updateUI();
+                console.log("Mode: Army (Optimized/Virtual)");
+            }
+            fillChess960() {
+                this.resetGame();
+                this.virtualGen = null; // Вимикаємо процедурну генерацію
+
+                // Визначаємо параметри рядів
+                const whiteRow = this.boardSize - 1;
+                const whitePawnRow = this.boardSize - 2;
+                const blackRow = 0;
+                const blackPawnRow = 1;
+
+                // Якщо дошка стандартна (8 клітинок) — класичний алгоритм 960
+                // Якщо велика — розширений алгоритм
+                const width = this.boardSize;
+                let rank = new Array(width).fill(null);
+                let available = Array.from({length: width}, (_, i) => i);
+
+                // --- ЛОГІКА ГЕНЕРАЦІЇ ---
+
+                // 1. КОРОЛЬ: Ставимо десь ближче до центру
+                // Щоб не загнати його в кут на дошці 100х100
+                const centerStart = Math.floor(width * 0.3);
+                const centerEnd = Math.floor(width * 0.7);
+                const possibleKingSpots = available.filter(i => i >= centerStart && i <= centerEnd);
+                
+                const kIdx = Math.floor(Math.random() * possibleKingSpots.length);
+                const kPos = possibleKingSpots[kIdx];
+                rank[kPos] = '♔';
+                
+                // Видаляємо позицію короля зі списку доступних
+                available = available.filter(i => i !== kPos);
+
+                // 2. ТУРИ: Мінімум одна зліва і одна справа від короля
+                const leftSide = available.filter(i => i < kPos);
+                const rightSide = available.filter(i => i > kPos);
+
+                if (leftSide.length === 0 || rightSide.length === 0) {
+                    // Це теоретично неможливо при правильному centerStart, але про всяк випадок
+                    alert("Помилка генерації (замала дошка)"); 
+                    return;
+                }
+
+                const r1 = leftSide[Math.floor(Math.random() * leftSide.length)];
+                const r2 = rightSide[Math.floor(Math.random() * rightSide.length)];
+                rank[r1] = '♖';
+                rank[r2] = '♖';
+                
+                // Оновлюємо available
+                available = available.filter(i => i !== r1 && i !== r2);
+
+                // 3. СЛОНИ: Генеруємо парами (різнокольоровими)
+                // На великих дошках слонів має бути більше. Скажімо, ~15% фігур.
+                let bishopsCount = Math.max(2, Math.floor(width * 0.15));
+                if (bishopsCount % 2 !== 0) bishopsCount++; // Робимо парним
+
+                // Розділяємо вільні клітинки на білі та чорні (парні/непарні індекси)
+                // Увага: перевірка кольору залежить від (col + row), але оскільки row однаковий, 
+                // то достатньо перевіряти парність індексу column.
+                let evens = available.filter(i => i % 2 === 0);
+                let odds = available.filter(i => i % 2 !== 0);
+
+                for (let i = 0; i < bishopsCount / 2; i++) {
+                    if (evens.length > 0 && odds.length > 0) {
+                        // Беремо один з парного
+                        const eIdx = Math.floor(Math.random() * evens.length);
+                        const ePos = evens[eIdx];
+                        rank[ePos] = '♗';
+                        evens.splice(eIdx, 1);
+
+                        // Беремо один з непарного
+                        const oIdx = Math.floor(Math.random() * odds.length);
+                        const oPos = odds[oIdx];
+                        rank[oPos] = '♗';
+                        odds.splice(oIdx, 1);
+                    }
+                }
+
+                // Збираємо залишок available з невикористаних парних/непарних
+                available = [...evens, ...odds];
+
+                // 4. ЗАПОВНЕННЯ (Ферзі, Коні та додаткові Тури)
+                // На великих дошках додамо трохи різноманіття
+                available.forEach(pos => {
+                    const rand = Math.random();
+                    if (rand < 0.45) rank[pos] = '♘';       // 45% Кінь
+                    else if (rand < 0.80) rank[pos] = '♕';  // 35% Ферзь
+                    else rank[pos] = '♖';                   // 20% Додаткова Тура
+                });
+
+                // --- РОЗМІЩЕННЯ НА ДОШЦІ ---
+                const blackMirror = { '♖':'♜', '♘':'♞', '♗':'♝', '♕':'♛', '♔':'♚' };
+
+                for (let c = 0; c < width; c++) {
+                    const wSym = rank[c];
+                    const bSym = blackMirror[wSym];
+
+                    // Білі
+                    this.setPiece(c, whiteRow, { s: wSym, c: 'w' });
+                    this.setPiece(c, whitePawnRow, { s: '♙', c: 'w' });
+
+                    // Чорні (дзеркально)
+                    this.setPiece(c, blackRow, { s: bSym, c: 'b' });
+                    this.setPiece(c, blackPawnRow, { s: '♟', c: 'b' });
+                }
+
+                this.updateUI();
+                console.log(`Mega 960 Generated: Size ${width}`);
+            }
+
+            fillFantasy() {
+                let percent = parseFloat(document.getElementById('fillPercent').value);
+                let mix = parseFloat(document.getElementById('fantasyMix').value);
+                if (isNaN(percent) || percent < 1) percent = 1; if (percent > 50) percent = 50;
+                this.resetGame();
+                this.generationSeed = Math.random() * 100000; // Change seed
+                this.virtualGen = 'fantasy';
+                this.virtualProps.percent = percent;
+                this.virtualProps.mix = mix;
+                this.updateUI();
+            }
+
+            clear() {
+                this.virtualGen = null;
+                this.resetGame();
+            }
+
+            saveGame() {
+                const pieces = [];
+                for (const [key, val] of this.grid) {
+                    const coord = key.split(',').map(Number);
+                    if (val === GRID_VOID) {
+                        pieces.push({ x: coord[0], y: coord[1], void: true });
+                        continue;
+                    }
+                    const id = val & 0xFFFF;
+                    const hasMoved = !!((val >> 16) & 1);
+                    const p = this.palette[id - 1];
+                    pieces.push({
+                        x: coord[0], y: coord[1], s: p.s, c: p.c, m: hasMoved ? 1 : 0
+                    });
+                }
+
+                const saveData = {
+                    format: "MegaChess_v4_History", // Оновлена версія формату
+                    timestamp: Date.now(),
+                    boardSize: this.boardSize,
+                    turn: this.currentTurn,
+                    virtualGen: this.virtualGen,
+                    virtualProps: this.virtualProps,
+                    generationSeed: this.generationSeed,
+                    moveHistory: this.moveHistory, // <-- ДОДАНО ЦЕ
+                    pieces: pieces
+                };
+
+                const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(saveData));
+                const downloadAnchorNode = document.createElement('a');
+                downloadAnchorNode.setAttribute("href", dataStr);
+                const date = new Date().toISOString().slice(0,10);
+                downloadAnchorNode.setAttribute("download", `megachess_${this.boardSize}x_${date}.json`);
+                document.body.appendChild(downloadAnchorNode);
+                downloadAnchorNode.click();
+                downloadAnchorNode.remove();
+            }
+
+            loadGame(inputElement) {
+                const file = inputElement.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const data = JSON.parse(e.target.result);
+                        this.applyLoadedData(data);
+                    } catch (err) {
+                        alert("Помилка читання файлу! Переконайтеся, що це правильний JSON.");
+                        console.error(err);
+                    }
+                    inputElement.value = '';
+                };
+                reader.readAsText(file);
+            }
+
+            applyLoadedData(data) {
+                this.grid.clear();
+                this.moveHistory = [];
+                this.kingsInCheck = { w: null, b: null };
+                this.kingPos = { w: null, b: null };
+                this.promotionPending = null;
+
+                if (data.boardSize) {
+                    document.getElementById('boardSize').value = data.boardSize;
+                    this.boardSize = data.boardSize;
+                }
+
+                this.virtualGen = data.virtualGen || null;
+                if (data.virtualProps) this.virtualProps = data.virtualProps;
+                if (data.generationSeed) this.generationSeed = data.generationSeed;
+
+                this.currentTurn = data.turn || 'w';
+
+                // 1. Відновлення фігур
+                if (Array.isArray(data.pieces)) {
+                    data.pieces.forEach(p => {
+                        if (p.x >= 0 && p.x < this.boardSize && p.y >= 0 && p.y < this.boardSize) {
+                            if (p.void) {
+                                this.grid.set(this.getKey(p.x, p.y), GRID_VOID);
+                            } else {
+                                this.setPiece(p.x, p.y, { s: p.s, c: p.c, hasMoved: !!p.m });
+                            }
+                        }
+                    });
+                }
+
+                // 2. Відновлення історії та відображення в лозі
+                const logList = document.getElementById('logList');
+                logList.innerHTML = ''; // Очищуємо лог перед заповненням
+
+                if (data.moveHistory && Array.isArray(data.moveHistory)) {
+                    this.moveHistory = data.moveHistory;
+
+                    // Проходимо по історії і додаємо в UI
+                    // Важливо: addLogToUI додає зверху (prepend), тому проходимо масив від початку до кінця
+                    this.moveHistory.forEach(step => {
+                        if (step.notation) {
+                            this.addLogToUI(
+                                step.notation.icon,
+                                step.notation.start,
+                                step.notation.end,
+                                step.notation.cap
+                            );
+                        }
+                    });
+                } else {
+                    // Якщо історії немає (старий файл), показуємо заглушку
+                    logList.innerHTML = '<div class="log-entry" style="color:#999; justify-content:center;">Ходів ще немає (Або файл без історії)</div>';
+                }
+
+                this.updateTurnIndicator();
+                this.centerBoard();
+                this.updateUI();
+
+                // Системне повідомлення в лог про успішне завантаження
+                const div = document.createElement('div');
+                div.className = 'log-entry';
+                div.style.color = 'green';
+                div.style.background = '#e8f5e9';
+                div.innerText = `📂 Файл завантажено успішно`;
+                logList.prepend(div);
+            }
+
+            getFileLabel(index) { let label = ""; index++; while (index > 0) { let rem = (index - 1) % 26; label = String.fromCharCode(97 + rem) + label; index = Math.floor((index - 1) / 26); } return label; }
+            isPathClear(c1, r1, c2, r2) { const dx = Math.sign(c2 - c1); const dy = Math.sign(r2 - r1); let x = c1 + dx; let y = r1 + dy; while (x !== c2 || y !== r2) { if (this.getPiece(x,y)) return false; x += dx; y += dy; } return true; }
+
+             canCheckersCapture(piece, cx, cy, ignoredPiece) {
+                const isKing = ['⛁', '⛃'].includes(piece.s);
+                const dirs = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
+
+                for (const d of dirs) {
+                    if (!isKing) {
+                        // Логіка пішака
+                        const enemyX = cx + d[0];
+                        const enemyY = cy + d[1];
+                        const landX = cx + d[0] * 2;
+                        const landY = cy + d[1] * 2;
+                        
+                        // Перевіряємо, чи це не та сама фігура, яку ми щойно побили (ignoredPiece)
+                        if (enemyX === ignoredPiece.x && enemyY === ignoredPiece.y) continue;
+
+                        if (landX >= 0 && landX < this.boardSize && landY >= 0 && landY < this.boardSize) {
+                            const enemy = this.getPiece(enemyX, enemyY);
+                            const landing = this.getPiece(landX, landY);
+                            if (enemy && enemy.c !== piece.c && !landing) return true;
+                        }
+                    } else {
+                        // Логіка Дамки (скануємо промені)
+                        for (let dist = 1; dist < this.boardSize; dist++) {
+                            const tx = cx + d[0] * dist;
+                            const ty = cy + d[1] * dist;
+                            if (tx < 0 || tx >= this.boardSize || ty < 0 || ty >= this.boardSize) break;
+                            
+                            // Якщо натрапили на "ігноровану" (щойно побиту) фігуру, пропускаємо її як порожнє місце
+                            if (tx === ignoredPiece.x && ty === ignoredPiece.y) continue;
+
+                            const target = this.getPiece(tx, ty);
+                            
+                            if (target) {
+                                if (target.c !== piece.c) {
+                                    // Знайшли ворога, перевіряємо чи є місце за ним
+                                    // Потрібно перевірити хоча б одну клітинку за ворогом
+                                    let landDist = 1;
+                                    while (true) {
+                                        const lx = tx + d[0] * landDist;
+                                        const ly = ty + d[1] * landDist;
+                                        if (lx < 0 || lx >= this.boardSize || ly < 0 || ly >= this.boardSize) break;
+                                        
+                                        const landingPiece = this.getPiece(lx, ly);
+                                        // Якщо натрапили на ще одну фігуру зразу ж, бій неможливий в цьому напрямку
+                                        if (landingPiece && (lx !== ignoredPiece.x || ly !== ignoredPiece.y)) break;
+                                        
+                                        // Якщо вільно (або це ігнорована фігура, що малоймовірно тут), то бій можливий
+                                        return true;
+                                    }
+                                    break; // За ворогом немає місця або вперлися в іншу фігуру
+                                } else {
+                                    break; // Вперлися в свого
+                                }
+                            }
+                        }
+                    }
+                }
+                return false;
+            }
+            
+            // --- НОВИЙ МЕТОД: РЕКУРСИВНИЙ ПІДРАХУНОК ДОВЖИНИ БОЮ ---
+            // Рахує, скільки всього шашок можна забрати, стартуючи з (cx, cy)
+            _measureCaptureChain(piece, cx, cy, ignoredPieces) {
+                const isKing = ['⛁', '⛃'].includes(piece.s);
+                const dirs = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
+                let maxChain = 0;
+
+                for (const d of dirs) {
+                    // --- ЛОГІКА ДАМКИ ---
+                    if (isKing) {
+                        let foundEnemy = null;
+                        // Скануємо діагональ
+                        for (let dist = 1; dist < this.boardSize; dist++) {
+                            const tx = cx + d[0] * dist;
+                            const ty = cy + d[1] * dist;
+
+                            // Вихід за межі
+                            if (tx < 0 || tx >= this.boardSize || ty < 0 || ty >= this.boardSize) break;
+
+                            // Перевірка "ігнорованих" (убитих у цьому ланцюжку)
+                            let isIgnored = false;
+                            for (const ip of ignoredPieces) {
+                                if (ip.x === tx && ip.y === ty) { isIgnored = true; break; }
+                            }
+                            if (isIgnored) continue; // Пролітаємо крізь убиту шашку як через пусту
+
+                            const target = this.getPiece(tx, ty);
+
+                            if (!foundEnemy) {
+                                // Шукаємо ворога
+                                if (target) {
+                                    if (target.c !== piece.c) {
+                                        foundEnemy = { x: tx, y: ty };
+                                    } else {
+                                        break; // Вперлися в свого
+                                    }
+                                }
+                            } else {
+                                // Ворога вже знайдено, шукаємо вільні клітинки за ним
+                                if (target) {
+                                    break; // Вперлися в фігуру за ворогом
+                                } else {
+                                    // Знайшли точку приземлення!
+                                    // Рекурсивно перевіряємо, що можна бити далі з цієї точки
+                                    const newIgnored = [...ignoredPieces, foundEnemy];
+                                    const depth = 1 + this._measureCaptureChain(piece, tx, ty, newIgnored);
+                                    if (depth > maxChain) maxChain = depth;
+                                }
+                            }
+                        }
+                    } 
+                    // --- ЛОГІКА ПРОСТОЇ ШАШКИ ---
+                    else {
+                        const enemyX = cx + d[0];
+                        const enemyY = cy + d[1];
+                        const landX = cx + d[0] * 2;
+                        const landY = cy + d[1] * 2;
+
+                        // Чи не ігноруємо ми цього ворога?
+                        let isIgnored = false;
+                        for (const ip of ignoredPieces) { if (ip.x === enemyX && ip.y === enemyY) isIgnored = true; }
+
+                        if (!isIgnored && landX >= 0 && landX < this.boardSize && landY >= 0 && landY < this.boardSize) {
+                            const enemy = this.getPiece(enemyX, enemyY);
+                            const landing = this.getPiece(landX, landY);
+
+                            if (enemy && enemy.c !== piece.c && !landing) {
+                                // Бій можливий
+                                const newIgnored = [...ignoredPieces, {x: enemyX, y: enemyY}];
+                                const depth = 1 + this._measureCaptureChain(piece, landX, landY, newIgnored);
+                                if (depth > maxChain) maxChain = depth;
+                            }
+                        }
+                    }
+                }
+                return maxChain;
+            }
+
+            // --- ОНОВЛЕНИЙ МЕТОД ОТРИМАННЯ ХОДІВ ---
+            getCheckersMoves(piece, cx, cy, onlyCaptures = false) {
+                const moves = [];
+                const possibleCaptures = [];
+                const isKing = ['⛁', '⛃'].includes(piece.s);
+                const isWhite = piece.c === 'w';
+                const dirs = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
+
+                // 1. Збираємо всі "сирі" ходи (тихі та бойові)
+                for (const d of dirs) {
+                    if (!isKing) {
+                        // Пішак
+                        const enemyX = cx + d[0];
+                        const enemyY = cy + d[1];
+                        const landX = cx + d[0] * 2;
+                        const landY = cy + d[1] * 2;
+
+                        // Перевірка бою
+                        if (landX >= 0 && landX < this.boardSize && landY >= 0 && landY < this.boardSize) {
+                            const enemy = this.getPiece(enemyX, enemyY);
+                            const landing = this.getPiece(landX, landY);
+                            if (enemy && enemy.c !== piece.c && !landing) {
+                                possibleCaptures.push({ 
+                                    c: landX, r: landY, 
+                                    isCapture: true, 
+                                    captured: {x: enemyX, y: enemyY} 
+                                });
+                            }
+                        }
+                        // Тихий хід
+                        if (!onlyCaptures) {
+                            const forward = isWhite ? -1 : 1;
+                            if (d[1] === forward) {
+                                if (enemyX >= 0 && enemyX < this.boardSize && enemyY >= 0 && enemyY < this.boardSize) {
+                                    if (!this.getPiece(enemyX, enemyY)) moves.push({ c: enemyX, r: enemyY });
+                                }
+                            }
+                        }
+                    } else {
+                        // Дамка
+                        let foundEnemy = null;
+                        for (let dist = 1; dist < this.boardSize; dist++) {
+                            const tx = cx + d[0] * dist;
+                            const ty = cy + d[1] * dist;
+                            if (tx < 0 || tx >= this.boardSize || ty < 0 || ty >= this.boardSize) break;
+                            const target = this.getPiece(tx, ty);
+
+                            if (!foundEnemy) {
+                                if (target) {
+                                    if (target.c !== piece.c) foundEnemy = { x: tx, y: ty };
+                                    else break;
+                                } else {
+                                    if (!onlyCaptures) moves.push({ c: tx, r: ty });
+                                }
+                            } else {
+                                if (target) break; // Блоковано
+                                // Це точка приземлення після бою
+                                possibleCaptures.push({ 
+                                    c: tx, r: ty, 
+                                    isCapture: true, 
+                                    captured: { x: foundEnemy.x, y: foundEnemy.y } 
+                                });
+                            }
+                        }
+                    }
+                }
+
+                // 2. Фільтрація згідно правила МАКСИМАЛЬНОГО БОЮ
+                if (possibleCaptures.length > 0) {
+                    // Для кожного варіанту бою рахуємо повну довжину ланцюжка
+                    let maxChainLen = 0;
+                    
+                    possibleCaptures.forEach(move => {
+                        // Початкова довжина = 1 (ми вже зробили цей стрибок).
+                        // Запускаємо рекурсію з нової точки, ігноруючи щойно побиту фігуру.
+                        const chainRest = this._measureCaptureChain(piece, move.c, move.r, [move.captured]);
+                        move.totalChain = 1 + chainRest;
+                        
+                        if (move.totalChain > maxChainLen) maxChainLen = move.totalChain;
+                    });
+
+                    // Залишаємо ТІЛЬКИ ті ходи, які ведуть до найдовшого ланцюжка
+                    // (Це змушує дамку обрати саме ту клітинку, з якої можна бити далі)
+                    return possibleCaptures.filter(m => m.totalChain === maxChainLen);
+                }
+
+                return onlyCaptures ? [] : moves;
+            }
+
+            validateMove(piece, c1, r1, c2, r2, checkingAttack = false) {
+                if (!this.rulesEnabled) return true;
+                if (this.checkersSymbols.has(piece.s) && !checkingAttack) {
+                    const legalMoves = this.generatePotentialMoves(piece, c1, r1);
+                    return legalMoves.some(m => m.c === c2 && m.r === r2);
+                }
+                const dx = c2 - c1; const dy = r2 - r1;
+                if (dx === 0 && dy === 0) return false;
+                const target = this.getPiece(c2, r2);
+                if (!checkingAttack && target && target.c === piece.c) return false;
+                const absDx = Math.abs(dx); const absDy = Math.abs(dy);
+                const type = piece.s; const isWhite = piece.c === 'w';
+
+                if (megaDefs[type]) {
+                    const def = megaDefs[type];
+                    const checkComp = (comp) => {
+                        const dirs = this._resolveDirs(comp.d || comp.dirs);
+                        const limit = comp.max || this.boardSize;
+                        for (const d of dirs) {
+                            let dirX = d[0]; let dirY = d[1];
+                            if (!isWhite && (['🚀','⚓','🏹','🎣','😺','🐗','🌊','🗡️','📜'].includes(type))) { dirY = -dirY; }
+                            if (comp.t === 'slide' || def.t === 'slide') {
+                                if (dirX === 0) { if (dx === 0 && Math.sign(dy) === Math.sign(dirY) && absDy <= limit) return this.isPathClear(c1, r1, c2, r2); }
+                                else if (dirY === 0) { if (dy === 0 && Math.sign(dx) === Math.sign(dirX) && absDx <= limit) return this.isPathClear(c1, r1, c2, r2); }
+                                else { if (absDx === absDy && Math.sign(dx) === Math.sign(dirX) && Math.sign(dy) === Math.sign(dirY) && absDx <= limit) return this.isPathClear(c1, r1, c2, r2); }
+                            }
+                            else if (comp.t === 'jump' || def.t === 'jump') { if (dx === dirX && dy === dirY) return true; }
+                            else if (comp.t === 'step' || def.t === 'step') { let mul = comp.mul || 1; if (dx === dirX*mul && dy === dirY*mul) return true; }
+                            else if (comp.t === 'slide_jump') { if (dx % dirX === 0 && dy % dirY === 0) { const steps = dx / dirX; if (steps === dy / dirY && steps > 0) { let cx = c1 + dirX, cy = r1 + dirY; while (cx !== c2 || cy !== r2) { if (this.getPiece(cx, cy)) return false; cx += dirX; cy += dirY; } return true; } } }
+                        }
+                        return false;
+                    };
+                    if (def.t === 'complex') { return def.comps.some(c => checkComp(c)); } else { return checkComp(def); }
+                }
+
+                const isRook = (dx === 0 || dy === 0) && this.isPathClear(c1, r1, c2, r2);
+                const isBishop = (absDx === absDy) && this.isPathClear(c1, r1, c2, r2);
+                const isKnight = (absDx === 2 && absDy === 1) || (absDx === 1 && absDy === 2);
+                if (['♖','♜','♕','♛','🦅','🐲','🤴','🍄'].includes(type)) { if (isRook) return true; }
+                if (['♗','♝','♕','♛','⛁','⛃','🦄','🐲','👼','🐆','👺'].includes(type)) { if (isBishop) return true; }
+                if (['♘','♞','🦄','🦅','🐲','🐿️'].includes(type)) { if (isKnight) return true; }
+                if (['♔','♚','👨','🐻','🤴','👼'].includes(type)) return absDx <= 1 && absDy <= 1;
+                if (type === '♙' || type === '♟') { const dir = isWhite ? -1 : 1; if (dx === 0 && dy === dir) return !target && !checkingAttack; if (dx === 0 && dy === dir * 2) { return !piece.hasMoved && !target && !checkingAttack && !this.getPiece(c1, r1 + dir); } if (absDx === 1 && dy === dir) return checkingAttack || (target && target.c !== piece.c); return false; }
+                if (['🐢','🐕'].includes(type)) return (absDx + absDy === 1) || (absDx===0 && dy===(isWhite?-1:1));
+                return false;
+            }
+findKing(color) {
+                if(color === 'w' && this.kingPos.w) return this.kingPos.w;
+                if(color === 'b' && this.kingPos.b) return this.kingPos.b;
+
+                // ВИПРАВЛЕННЯ: Додано перевірку, чи не видалена фігура гумкою (GRID_VOID)
+                if (this.virtualGen === 'classic' || this.virtualGen === 'fantasy' || this.virtualGen === 'army') {
+                     const kingCol = Math.floor(this.boardSize/2);
+                     let kR = -1;
+                     if (color === 'b') kR = 0;
+                     if (color === 'w') kR = this.boardSize - 1;
+                     
+                     if (kR !== -1) {
+                        // Якщо на місці короля стоїть "пустота" (видалено), не повертаємо його
+                        if (this.grid.get(this.getKey(kingCol, kR)) !== GRID_VOID) {
+                             return {c: kingCol, r: kR};
+                        }
+                     }
+                }
+
+                const kingSymbol = color === 'w' ? '♔' : '♚';
+                for (const [key, val] of this.grid) {
+                    if (val === GRID_VOID) continue;
+                    const id = val & 0xFFFF;
+                    const p = this.palette[id-1];
+                    if(p.s === kingSymbol && p.c === color) {
+                         const parts = key.split(',');
+                         return {c: parseInt(parts[0]), r: parseInt(parts[1])};
+                    }
+                }
+                return null;
+            }
+            
+            endGame() {
+                this.gameOver = true;
+                const winner = this.currentTurn === 'w' ? "Чорні" : "Білі";
+                const icon = this.currentTurn === 'w' ? "♚" : "♔";
+                document.getElementById('winnerTxt').innerText = `Перемога: ${winner}`;
+                document.getElementById('winnerIcon').innerText = icon;
+                document.getElementById('gameOverOverlay').style.display = 'flex';
+            }
+
+            showStalemate() {
+                this.gameOver = true;
+                document.getElementById('winnerTxt').innerText = "Нічия (Пат)";
+                document.getElementById('winnerIcon').innerText = "🤝"; // Іконка рукостискання
+                document.getElementById('gameOverOverlay').style.display = 'flex';
+            }
+
+            switchTurn() {
+                // Якщо режим ходів вимкнено, ми не перемикаємо чергу
+                if (!this.turnModeEnabled) return;
+
+                // 1. Змінюємо сторону (w -> b, b -> w)
+                this.currentTurn = this.currentTurn === 'w' ? 'b' : 'w';
+
+                // 2. Оновлюємо статус шаху для обох сторін
+                // Це важливо, щоб індикатор показав "ШАХ", якщо новий гравець під атакою
+                this.kingsInCheck.w = this.isInCheck('w') ? this.findKing('w') : null;
+                this.kingsInCheck.b = this.isInCheck('b') ? this.findKing('b') : null;
+
+                // 3. Оновлюємо візуальний індикатор зверху
+                this.updateTurnIndicator();
+
+                // 4. (Опціонально) Перевірка на мат
+                // Оскільки це "Mega Chess" з мільйонами клітинок, повний перерахунок мату 
+                // може бути повільним, тому поки що залишаємо лише візуальний шах.
+            }
+            
+            updateTurnIndicator() {
+                const ind = document.getElementById('turnIndicator');
+                const txt = document.getElementById('turnText');
+                const icon = document.getElementById('turnIcon');
+                if (!this.turnModeEnabled) { ind.style.display = 'none'; return; }
+                ind.style.display = 'flex';
+                if (this.currentTurn === 'w') {
+                    ind.style.background = 'rgba(255, 255, 255, 0.9)'; ind.style.color = '#000';
+                    ind.style.borderColor = (this.kingsInCheck.w) ? 'red' : '#000';
+                    txt.innerText = (this.kingsInCheck.w) ? "Хід: Білі (ШАХ!)" : "Хід: Білі";
+                    icon.innerText = "♔";
+                } else {
+                    ind.style.background = 'rgba(0, 0, 0, 0.9)'; ind.style.color = '#fff';
+                    ind.style.borderColor = (this.kingsInCheck.b) ? 'red' : '#fff';
+                    txt.innerText = (this.kingsInCheck.b) ? "Хід: Чорні (ШАХ!)" : "Хід: Чорні";
+                    icon.innerText = "♚";
+                }
+            }
+
+            toggleRules() { this.rulesEnabled = !this.rulesEnabled; if(!this.rulesEnabled) this.kingsInCheck = { w: null, b: null }; document.getElementById('rulesBtn').innerText = this.rulesEnabled ? "🟢 Правила" : "🔴 Правила"; }
+            toggleTurnMode() { this.turnModeEnabled = !this.turnModeEnabled; this.updateTurnIndicator(); document.getElementById('turnBtn').innerText = this.turnModeEnabled ? "🟢 Хід (ВКЛ)" : "🔴 Хід (ВИКЛ)"; }
+
+            findKing(color) {
+                if(color === 'w' && this.kingPos.w) return this.kingPos.w;
+                if(color === 'b' && this.kingPos.b) return this.kingPos.b;
+
+                // ВИПРАВЛЕННЯ: Додано перевірку, чи не видалена фігура гумкою (GRID_VOID)
+                if (this.virtualGen === 'classic' || this.virtualGen === 'fantasy' || this.virtualGen === 'army') {
+                     const kingCol = Math.floor(this.boardSize/2);
+                     let kR = -1;
+                     if (color === 'b') kR = 0;
+                     if (color === 'w') kR = this.boardSize - 1;
+                     
+                     if (kR !== -1) {
+                        // Якщо на місці короля стоїть "пустота" (видалено), не повертаємо його
+                        if (this.grid.get(this.getKey(kingCol, kR)) !== GRID_VOID) {
+                             return {c: kingCol, r: kR};
+                        }
+                     }
+                }
+
+                const kingSymbol = color === 'w' ? '♔' : '♚';
+                for (const [key, val] of this.grid) {
+                    if (val === GRID_VOID) continue;
+                    const id = val & 0xFFFF;
+                    const p = this.palette[id-1];
+                    if(p.s === kingSymbol && p.c === color) {
+                         const parts = key.split(',');
+                         return {c: parseInt(parts[0]), r: parseInt(parts[1])};
+                    }
+                }
+                return null;
+            }
+
+            isSquareAttacked(targetC, targetR, byOpponentOfColor) {
+                // 1. Швидка перевірка ворожого КОРОЛЯ (Це те, чого не вистачало!)
+                const enemyKingPos = this.findKing(byOpponentOfColor);
+                if (enemyKingPos) {
+                    const dkx = Math.abs(enemyKingPos.c - targetC);
+                    const dky = Math.abs(enemyKingPos.r - targetR);
+                    // Якщо клітинка поруч з ворожим королем — вона під атакою
+                    if (dkx <= 1 && dky <= 1) return true;
+                }
+
+                // 2. Стандартні перевірки (Коні, Пішаки, Промені)
+                const enemyQueen = byOpponentOfColor === 'w' ? '♕' : '♛';
+                const enemyRook = byOpponentOfColor === 'w' ? '♖' : '♜';
+                const enemyBishop = byOpponentOfColor === 'w' ? '♗' : '♝';
+                const enemyKnight = byOpponentOfColor === 'w' ? '♘' : '♞';
+                const enemyPawn = byOpponentOfColor === 'w' ? '♙' : '♟';
+
+                // Перевірка Конів
+                const knights = [[1,2],[1,-2],[-1,2],[-1,-2],[2,1],[2,-1],[-2,1],[-2,-1]];
+                for (const [dx, dy] of knights) {
+                    const p = this.getPiece(targetC + dx, targetR + dy);
+                    if (p && p.c === byOpponentOfColor && (p.s === enemyKnight || p.s === '🦄')) return true;
+                }
+
+                // Перевірка Пішаків
+                const pawnDy = byOpponentOfColor === 'w' ? 1 : -1;
+                const checkPawn = (offset) => {
+                     const p = this.getPiece(targetC + offset, targetR + pawnDy);
+                     return p && p.c === byOpponentOfColor && p.s === enemyPawn;
+                }
+                if (checkPawn(1) || checkPawn(-1)) return true;
+
+                // ОПТИМІЗОВАНА ПЕРЕВІРКА ЛІНІЙ (Raycast)
+                const checkRayOptimized = (dx, dy, types) => {
+                    let closestDist = Infinity;
+                    let closestPiece = null;
+
+                    // А. Перевірка реальних фігур
+                    for (const [key, val] of this.grid) {
+                        if (val === GRID_VOID) continue; 
+                        const comma = key.indexOf(',');
+                        const pc = parseInt(key.substring(0, comma));
+                        const pr = parseInt(key.substring(comma + 1));
+                        const distC = pc - targetC;
+                        const distR = pr - targetR;
+                        
+                        let valid = false;
+                        let d = Infinity;
+                        
+                        if (dx !== 0 && dy !== 0) { // Діагональ
+                            if (Math.abs(distC) === Math.abs(distR) && Math.sign(distC) === dx && Math.sign(distR) === dy) {
+                                valid = true; d = Math.abs(distC);
+                            }
+                        } else if (dx !== 0) { // Горизонталь
+                            if (distR === 0 && Math.sign(distC) === dx) { valid = true; d = Math.abs(distC); }
+                        } else { // Вертикаль
+                            if (distC === 0 && Math.sign(distR) === dy) { valid = true; d = Math.abs(distR); }
+                        }
+
+                        if (valid && d < closestDist) {
+                            closestDist = d;
+                            const id = val & 0xFFFF;
+                            closestPiece = this.palette[id-1];
+                        }
+                    }
+
+                    // Б. Перевірка Віртуальних Армій
+                    if (this.virtualGen) {
+                         let armyH = 0;
+                         if (this.virtualGen === 'chess960') armyH = 2;
+                         else if (this.virtualGen !== 'checkers') {
+                             armyH = Math.floor(this.boardSize * (this.virtualProps.percent / 100));
+                             if (armyH < 2) armyH = 2;
+                         } else {
+                             armyH = Math.floor(this.boardSize * (this.virtualProps.percent / 100));
+                         }
+                         const topBoundary = armyH; 
+                         const botBoundary = this.boardSize - armyH;
+                         let vDist = Infinity;
+
+                         if (dy !== 0) {
+                             if (dy < 0) { if (targetR >= topBoundary) vDist = targetR - (topBoundary - 1); } 
+                             else { if (targetR < botBoundary) vDist = botBoundary - targetR; }
+                         } else {
+                             if (targetR < topBoundary || targetR >= botBoundary) vDist = 1;
+                         }
+
+                         if (vDist < closestDist) {
+                             const vx = targetC + dx * vDist; const vy = targetR + dy * vDist;
+                             if (vx >= 0 && vx < this.boardSize && vy >= 0 && vy < this.boardSize) {
+                                 const vp = this.getPiece(vx, vy);
+                                 if (vp) { closestDist = vDist; closestPiece = vp; }
+                             }
+                         }
+                    }
+
+                    // В. Фінальна перевірка
+                    if (closestPiece && closestPiece.c === byOpponentOfColor) {
+                        if (types.includes(closestPiece.s)) return true;
+                        if (types.includes(enemyQueen) && ['🧜','🔱','🦅'].includes(closestPiece.s)) return true;
+                    }
+                    return false;
+                };
+
+                if (checkRayOptimized(0, 1, [enemyRook, enemyQueen])) return true;
+                if (checkRayOptimized(0, -1, [enemyRook, enemyQueen])) return true;
+                if (checkRayOptimized(1, 0, [enemyRook, enemyQueen])) return true;
+                if (checkRayOptimized(-1, 0, [enemyRook, enemyQueen])) return true;
+                if (checkRayOptimized(1, 1, [enemyBishop, enemyQueen])) return true;
+                if (checkRayOptimized(1, -1, [enemyBishop, enemyQueen])) return true;
+                if (checkRayOptimized(-1, 1, [enemyBishop, enemyQueen])) return true;
+                if (checkRayOptimized(-1, -1, [enemyBishop, enemyQueen])) return true;
+
+                return false;
+            }
+
+            isInCheck(kingColor) { const kingPos = this.findKing(kingColor); if (!kingPos) return false; return this.isSquareAttacked(kingPos.c, kingPos.r, kingColor === 'w' ? 'b' : 'w'); }
+            updateKingCheckStatus(color) { this.kingsInCheck[color] = this.isInCheck(color) ? this.findKing(color) : null; }
+
+            hasAnyLegalMoves(color) { return true; }
+            _resolveDirs(d) { return typeof d === 'string' ? DIRS[d] : d; }
+
+            generatePotentialMoves(piece, cx, cy, bounds = null) {
+                // Если это шашки, используем старую логику (она локальная, не длинная)
+                if (this.checkersSymbols.has(piece.s)) {
+                    if (!this.multiJumpSource && this.rulesEnabled) return this.getCheckersMoves(piece, cx, cy);
+                    else if (this.multiJumpSource) {
+                        if (cx !== this.multiJumpSource.c || cy !== this.multiJumpSource.r) return [];
+                        return this.getCheckersMoves(piece, cx, cy, true);
+                    }
+                    return this.getCheckersMoves(piece, cx, cy);
+                }
+
+                let moves = [];
+                const type = piece.s;
+                const isWhite = piece.c === 'w';
+
+                // Функция для добавления одной точки (прыжок коня, короля)
+                const addStep = (dx, dy) => {
+                    let x = cx + dx; let y = cy + dy;
+                    if (x >= 0 && x < this.boardSize && y >= 0 && y < this.boardSize) {
+                        moves.push({c: x, r: y});
+                    }
+                };
+
+                // ВАЖНО: Оптимизированная трассировка (Слайдеры: Ладья, Слон, Ферзь)
+                const addTrace = (dx, dy) => {
+                    let x = cx + dx; 
+                    let y = cy + dy;
+                    
+                    // Защита от бесконечного цикла, но теперь ограничена экраном или доской
+                    let steps = 0;
+                    // Максимум шагов ограничиваем размером доски, но прервем раньше
+                    const maxSteps = this.boardSize; 
+
+                    while (x >= 0 && x < this.boardSize && y >= 0 && y < this.boardSize && steps < maxSteps) {
+                        // 1. ВИРТУАЛЬНАЯ ОПТИМИЗАЦИЯ:
+                        // Если есть границы экрана (bounds) и мы вышли за них — ПРЕРЫВАЕМСЯ.
+                        // Нет смысла рисовать точки там, где игрок не видит.
+                        if (bounds) {
+                            // Проверяем, движемся ли мы ОТ фигуры ЗА пределы экрана
+                            // (Упрощенно: если точка вне экрана, перестаем добавлять)
+                            if (x < bounds.minC || x > bounds.maxC || y < bounds.minR || y > bounds.maxR) {
+                                // Но нужно быть осторожным: если фигура сама за экраном, а бьет В экран.
+                                // Поэтому проверяем: если мы УЖЕ далеко от фигуры и вышли за экран.
+                                if (Math.abs(x - cx) > 50 || Math.abs(y - cy) > 50) break;
+                                
+                                // Или просто: если точка далеко за пределами вьюпорта, break.
+                                // Разрешаем небольшой "овердрафт", чтобы линии не обрывались резко при скролле
+                            }
+                        }
+
+                        const target = this.getPiece(x, y);
+                        if (target) {
+                            // Если встретили фигуру
+                            if (target.c !== piece.c) moves.push({c: x, r: y}); // Бьем врага
+                            break; // И останавливаемся
+                        }
+                        
+                        // Если пусто - добавляем ход
+                        moves.push({c: x, r: y});
+                        
+                        x += dx; y += dy;
+                        steps++;
+                    }
+                };
+
+                // Стандартные правила движения
+                if (['♖','♜','♕','♛'].includes(type)) { addTrace(1,0); addTrace(-1,0); addTrace(0,1); addTrace(0,-1); }
+                if (['♗','♝','♕','♛'].includes(type)) { addTrace(1,1); addTrace(-1,1); addTrace(1,-1); addTrace(-1,-1); }
+                if (['♘','♞'].includes(type)) { [[1,2],[1,-2],[-1,2],[-1,-2],[2,1],[2,-1],[-2,1],[-2,-1]].forEach(d => addStep(d[0], d[1])); }
+                if (['♔','♚'].includes(type)) { for(let i=-1;i<=1;i++) for(let j=-1;j<=1;j++) if(i||j) addStep(i,j); }
+                
+                // Пешки
+                if (['♙','♟'].includes(type)) {
+                    const d = isWhite ? -1 : 1;
+                    if (!this.getPiece(cx, cy + d)) addStep(0, d);
+                    if (!this.getPiece(cx, cy + d*2) && !this.getPiece(cx, cy + d) && !piece.hasMoved) addStep(0, d*2);
+                    const t1 = this.getPiece(cx + 1, cy + d); if (t1 && t1.c !== piece.c) addStep(1, d);
+                    const t2 = this.getPiece(cx - 1, cy + d); if (t2 && t2.c !== piece.c) addStep(-1, d);
+                }
+                
+                // Мега-фигуры
+                if (megaDefs[type]) {
+                    const def = megaDefs[type];
+                    const FLIP_Y_LIST = ['🚀','⚓','🏹','🎣','😺','🐗','🌊','🗡️','📜'];
+                    const processComp = (comp) => {
+                        const dirs = this._resolveDirs(comp.d || comp.dirs);
+                        const limit = comp.max || this.boardSize;
+                        const moveType = comp.t || def.t;
+                        for (const d of dirs) {
+                            let dirX = d[0]; let dirY = d[1];
+                            if (!isWhite && FLIP_Y_LIST.includes(type)) dirY = -dirY;
+                            
+                            if (moveType === 'slide' || moveType === 'slide_jump') {
+                                // Здесь мы не можем просто передать limit, так как addTrace теперь сам решает когда остановиться
+                                // Но для "коротких" слайдеров (ограниченных max), мы можем проверять внутри
+                                // Для упрощения используем тот же addTrace, он сам обрежется границами экрана
+                                addTrace(dirX, dirY); 
+                            } else { 
+                                let mul = comp.mul || 1; 
+                                addStep(dirX * mul, dirY * mul); 
+                            }
+                        }
+                    };
+                    if (def.t === 'complex') def.comps.forEach(c => processComp(c)); else processComp(def);
+                }
+                return moves;
+            }
+
+            simulateMoveAndCheckSafety(piece, startC, startR, targetC, targetR) {
+                if (!this.validateMove(piece, startC, startR, targetC, targetR)) return false;
+
+                const keyStart = this.getKey(startC, startR);
+                const keyTarget = this.getKey(targetC, targetR);
+
+                const valStart = this.grid.get(keyStart);
+                const valTarget = this.grid.get(keyTarget);
+
+                const wasKingW = this.kingPos.w;
+                const wasKingB = this.kingPos.b;
+
+                if (valStart === undefined && this.virtualGen) {
+                    const p = this.getVirtualPiece(startC, startR);
+                    const pid = this.getPaletteId(p.s, p.c);
+                    this.grid.set(keyTarget, pid);
+                    this.grid.set(keyStart, GRID_VOID);
+                } else {
+                    this.grid.set(keyTarget, valStart);
+                    this.grid.delete(keyStart);
+                }
+
+                if(piece.s === '♔') this.kingPos.w = {c: targetC, r: targetR};
+                if(piece.s === '♚') this.kingPos.b = {c: targetC, r: targetR};
+
+                const isSafe = !this.isInCheck(piece.c);
+
+                if (valTarget === undefined) this.grid.delete(keyTarget); else this.grid.set(keyTarget, valTarget);
+                if (valStart === undefined) this.grid.delete(keyStart); else this.grid.set(keyStart, valStart);
+
+                this.kingPos.w = wasKingW;
+                this.kingPos.b = wasKingB;
+
+                return isSafe;
+            }
+            tryPlacePiece(c, r) {
+                if (c < 0 || c >= this.boardSize || r < 0 || r >= this.boardSize) return;
+                // Підтримка гумки
+                if (this.curSymbol === '❌' || this.curSymbol === 'eraser') {
+                    this.removePiece(c, r);
+                } else {
+                    // Ставимо фігуру
+                    this.setPiece(c, r, { s: this.curSymbol, c: this.curColor, hasMoved: false });
+                }
+            }
+
+              calculateHighlights(piece, cx, cy) {
+                if (!this.rulesEnabled) return;
+                
+                this.highlightedMoves = [];
+                const type = piece.s;
+                const isWhite = piece.c === 'w';
+
+                // Допоміжна функція: перевіряє, чи безпечний хід, перш ніж малювати крапку
+                const tryAddMove = (tx, ty, isCapture) => {
+                    if (this.simulateMoveAndCheckSafety(piece, cx, cy, tx, ty)) {
+                        this.highlightedMoves.push({ type: 'point', c: tx, r: ty, capture: isCapture });
+                    }
+                };
+
+                // --- 1. Слайдери ---
+                const castRay = (dx, dy, maxLimit = this.boardSize) => {
+                    const end = this.findRayEnd(cx, cy, dx, dy, maxLimit);
+                    let dist = Math.max(Math.abs(end.x - cx), Math.abs(end.y - cy));
+                    if (end.hit || end.ally) dist--;
+
+                    // Малюємо лінію (безпеку проміжних точок зазвичай не перевіряють для швидкості, 
+                    // але королі не ходять лініями, тому це ОК)
+                    if (dist > 0) {
+                        this.highlightedMoves.push({ type: 'ray', cx: cx, cy: cy, dx: dx, dy: dy, len: dist });
+                    }
+
+                    // Атака в кінці лінії
+                    if (end.hit && !end.ally) {
+                        tryAddMove(end.x, end.y, true);
+                    }
+                };
+
+                // --- 2. Стрибуни (Король, Кінь) ---
+                const checkJump = (dx, dy) => {
+                    const tx = cx + dx; const ty = cy + dy;
+                    if (tx >= 0 && tx < this.boardSize && ty >= 0 && ty < this.boardSize) {
+                        const target = this.getPiece(tx, ty);
+                        if (!target) {
+                             tryAddMove(tx, ty, false);
+                        } else if (target.c !== piece.c) {
+                             tryAddMove(tx, ty, true);
+                        }
+                    }
+                };
+
+                // Шашки
+                if (this.checkersSymbols.has(type)) {
+                    const moves = this.generatePotentialMoves(piece, cx, cy);
+                    moves.forEach(m => this.highlightedMoves.push({ type: 'point', c: m.c, r: m.r, capture: !!m.isCapture }));
+                    return;
+                }
+
+                if (['♖','♜','♕','♛'].includes(type)) { castRay(1,0); castRay(-1,0); castRay(0,1); castRay(0,-1); }
+                if (['♗','♝','♕','♛'].includes(type)) { castRay(1,1); castRay(-1,1); castRay(1,-1); castRay(-1,-1); }
+                if (['♘','♞'].includes(type)) { [[1,2],[1,-2],[-1,2],[-1,-2],[2,1],[2,-1],[-2,1],[-2,-1]].forEach(d => checkJump(d[0], d[1])); }
+                if (['♔','♚'].includes(type)) { for(let i=-1;i<=1;i++) for(let j=-1;j<=1;j++) if(i||j) checkJump(i,j); }
+
+                // Mega фігури
+                if (megaDefs[type]) {
+                     const def = megaDefs[type];
+                     const FLIP_Y_LIST = ['🚀','⚓','🏹','🎣','😺','🐗','🌊','🗡️','📜'];
+                     const processComp = (comp) => {
+                        const dirs = this._resolveDirs(comp.d || comp.dirs);
+                        const limit = comp.max || this.boardSize;
+                        const moveType = comp.t || def.t;
+                        for (const d of dirs) {
+                            let dirX = d[0], dirY = d[1];
+                            if (!isWhite && FLIP_Y_LIST.includes(type)) dirY = -dirY;
+                            if (moveType === 'slide' || moveType === 'slide_jump') castRay(dirX, dirY, limit);
+                            else { let mul = comp.mul || 1; checkJump(dirX * mul, dirY * mul); }
+                        }
+                     };
+                     if (def.t === 'complex') def.comps.forEach(c => processComp(c)); else processComp(def);
+                }
+
+                // Пішаки
+                if (['♙','♟'].includes(type)) {
+                    const dir = isWhite ? -1 : 1;
+                    const fwd1 = this.getPiece(cx, cy + dir);
+                    if (!fwd1) {
+                        tryAddMove(cx, cy + dir, false);
+                        if (!piece.hasMoved) {
+                            const fwd2 = this.getPiece(cx, cy + dir * 2);
+                            if (!fwd2) tryAddMove(cx, cy + dir * 2, false);
+                        }
+                    }
+                    [1, -1].forEach(dx => {
+                        const tx = cx + dx; const ty = cy + dir;
+                        const t = this.getPiece(tx, ty);
+                        if (t && t.c !== piece.c) tryAddMove(tx, ty, true);
+                    });
+                }
+            }
+            onMouseDown(e) {
+                if (this.gameOver || this.isGenerating || this.promotionPending) return;
+                
+                this.clickStart = { x: e.clientX, y: e.clientY };
+                const w = this.screenToWorld(e.clientX, e.clientY);
+                const c = Math.floor(w.x / this.cellSize); 
+                const r = Math.floor(w.y / this.cellSize);
+
+                // --- ЛІВА КНОПКА (ЛКМ): Гра або Переміщення Камери ---
+                if (e.button === 0) {
+                    this.customArrows = []; // Клік лівою стирає стрілки (як на Lichess)
+
+                    // 1. Інструмент ГУМКА (видалення миттєве)
+                    if (!this.turnModeEnabled && (this.curSymbol === '❌' || this.curSymbol === 'delete')) {
+                        this.tryPlacePiece(c, r); 
+                        return; 
+                    }
+                    
+                    // 2. Перевіряємо, чи є тут фігура, яку можна взяти
+                    const piece = this.getPiece(c, r);
+                    let canGrabPiece = false;
+                    if (piece) {
+                        if (!this.turnModeEnabled || piece.c === this.currentTurn) {
+                            canGrabPiece = true;
+                        }
+                    }
+
+                    if (canGrabPiece) {
+                        // Якщо попали по фігурі -> ТЯГНЕМО ФІГУРУ
+                        this.isDraggingPiece = true;
+                        this.draggedPiece = { data: piece, startC: c, startR: r };
+                        this.calculateHighlights(piece, c, r);
+                    } else {
+                        // Якщо попали в пусте місце -> ТЯГНЕМО ДОШКУ (КАМЕРУ)
+                        this.isDragging = true; 
+                        this.lastMouse = { x: e.clientX, y: e.clientY }; 
+                        this.canvas.style.cursor = "grabbing";
+                    }
+                } 
+                
+                // --- ПРАВА КНОПКА (ПКМ): Тільки малювання стрілок ---
+                else if (e.button === 2) {
+                    // Запам'ятовуємо старт стрілки (Shift більше не потрібен)
+                    if (c >= 0 && c < this.boardSize && r >= 0 && r < this.boardSize) {
+                        this.rmbStart = { c, r };
+                    } else {
+                        this.rmbStart = null;
+                    }
+                }
+            }
+            onMouseMove(e) {
+                this.mouse.x = e.clientX; this.mouse.y = e.clientY;
+                if (this.promotionPending) return;
+
+                // 1. Логіка переміщення камери (тепер працює від ЛКМ)
+                if (this.isDragging) { 
+                    const dx = e.clientX - this.lastMouse.x;
+                    const dy = e.clientY - this.lastMouse.y;
+
+                    this.camera.x += dx; 
+                    this.camera.y += dy; 
+                    this.targetCamera.x += dx;
+                    this.targetCamera.y += dy;
+
+                    this.lastMouse = { x: e.clientX, y: e.clientY }; 
+                    this.clampCamera(); 
+                }
+                
+                const w = this.screenToWorld(e.clientX, e.clientY); 
+                const c = Math.floor(w.x / this.cellSize); 
+                const r = Math.floor(w.y / this.cellSize);
+
+                // 2. Логіка малювання фігур (редактор)
+                if (this.isPainting) this.tryPlacePiece(c, r);
+
+                // 3. Оновлення координат в UI
+                if (c >= 0 && c < this.boardSize && r >= 0 && r < this.boardSize) { 
+                    const file = this.getFileLabel(c); 
+                    const rank = this.boardSize - r; 
+                    document.getElementById('coord').innerText = `${file}${rank}`; 
+                }
+            }
+
+
+                       onMouseUp(e) {
+                // --- ПРАВА КНОПКА (Завершення стрілки) ---
+                if (e.button === 2 && this.rmbStart) {
+                    const w = this.screenToWorld(e.clientX, e.clientY);
+                    let rawC = Math.floor(w.x / this.cellSize); 
+                    let rawR = Math.floor(w.y / this.cellSize);
+                    const endC = Math.max(0, Math.min(this.boardSize - 1, rawC));
+                    const endR = Math.max(0, Math.min(this.boardSize - 1, rawR));
+
+                    if (this.rmbStart.c !== endC || this.rmbStart.r !== endR) {
+                        const newArrow = { sx: this.rmbStart.c, sy: this.rmbStart.r, ex: endC, ey: endR };
+                        const idx = this.customArrows.findIndex(a => a.sx === newArrow.sx && a.sy === newArrow.sy && a.ex === newArrow.ex && a.ey === newArrow.ey);
+                        if (idx >= 0) this.customArrows.splice(idx, 1); 
+                        else this.customArrows.push(newArrow);
+                    }
+                    this.rmbStart = null; 
+                    this.updateUI(); 
+                    return;
+                }
+
+                if (e.button === 2) this.isPainting = false;
+                if (this.promotionPending) return;
+
+                // --- ЛІВА КНОПКА (Завершення ходу або камери) ---
+                if (e.button === 0) {
+                    const w = this.screenToWorld(e.clientX, e.clientY);
+                    const c = Math.floor(w.x / this.cellSize); 
+                    const r = Math.floor(w.y / this.cellSize);
+
+                    // 1. Спочатку перевіряємо, чи це був клік
+                    let isClick = false;
+                    if (this.clickStart) {
+                        const dist = Math.hypot(e.clientX - this.clickStart.x, e.clientY - this.clickStart.y);
+                        if (dist < 5) isClick = true;
+                    }
+
+                    // 2. Якщо ми рухали камеру
+                    if (this.isDragging) {
+                        this.isDragging = false;
+                        this.canvas.style.cursor = "grab";
+                        if (!isClick) return; 
+                    }
+
+                    // СЦЕНАРІЙ А: КЛІК (Вибір або редактор)
+                    if (isClick) {
+                        if (!this.turnModeEnabled) {
+                            this.tryPlacePiece(c, r);
+                        }
+                        this.isDraggingPiece = false;
+                        this.draggedPiece = null;
+                        this.highlightedMoves = [];
+                        this.updateUI();
+                        return; 
+                    }
+
+                    // СЦЕНАРІЙ Б: КІНЕЦЬ ПЕРЕТЯГУВАННЯ ФІГУРИ (Хід)
+                    if (this.isDraggingPiece && this.draggedPiece) {
+                        if (c >= 0 && c < this.boardSize && r >= 0 && r < this.boardSize) {
+                            if (c !== this.draggedPiece.startC || r !== this.draggedPiece.startR) {
+                                
+                                // 1. Отримуємо всі легальні ходи для цієї фігури
+                                const potentialMoves = this.generatePotentialMoves(this.draggedPiece.data, this.draggedPiece.startC, this.draggedPiece.startR);
+                                // 2. Шукаємо, чи є серед них той, який зробив гравець (по координатах)
+                                const chosenMove = potentialMoves.find(m => m.c === c && m.r === r);
+
+                                if (chosenMove) {
+                                    // Перевірка безпеки (для шахів)
+                                    let isMoveSafe = true;
+                                    if (this.rulesEnabled && !this.checkersSymbols.has(this.draggedPiece.data.s)) {
+                                        isMoveSafe = this.simulateMoveAndCheckSafety(this.draggedPiece.data, this.draggedPiece.startC, this.draggedPiece.startR, c, r);
+                                    }
+                                    
+                                    if (isMoveSafe) {
+                                        // --- ЛОГІКА ДЛЯ ШАШОК (ВИПРАВЛЕНО) ---
+                                        if (this.checkersSymbols.has(this.draggedPiece.data.s) && chosenMove.isCapture) {
+                                            // Видаляємо побиту шашку
+                                            if (chosenMove.captured) {
+                                                this.removePiece(chosenMove.captured.x, chosenMove.captured.y);
+                                            }
+                                        }
+
+                                        // Перевірка пішака на перетворення (Шахи та Шашки)
+                                        const isWhite = this.draggedPiece.data.c === 'w';
+                                        const isPawn = this.draggedPiece.data.s === '♙' || this.draggedPiece.data.s === '♟';
+                                        const isCheckerMan = this.draggedPiece.data.s === '⛀' || this.draggedPiece.data.s === '⛂';
+                                        const promotionRow = isWhite ? 0 : this.boardSize - 1;
+                                        
+                                        // Перетворення Пішака (Шахи)
+                                        if (isPawn && r === promotionRow) {
+                                            this.promotionPending = { piece: this.draggedPiece.data, startC: this.draggedPiece.startC, startR: this.draggedPiece.startR, endC: c, endR: r };
+                                            this.showPromotionDialog(this.draggedPiece.data.c);
+                                            this.draggedPiece = null; this.isDraggingPiece = false; this.highlightedMoves = []; return;
+                                        }
+                                        // Перетворення Дамки (Шашки) - автоматично
+                                        if (isCheckerMan && r === promotionRow) {
+                                            this.draggedPiece.data.s = isWhite ? '⛁' : '⛃';
+                                        }
+
+                                        // Запис ходу в історію
+                                        const startCoord = this.getCoordString(this.draggedPiece.startC, this.draggedPiece.startR);
+                                        const endCoord = this.getCoordString(c, r);
+                                        const isCap = !!this.getPiece(c,r) || (chosenMove.isCapture); // Врахування бою в шашках
+                                        
+                                        const historyStep = { turn: this.currentTurn, prevKingPos: { w: this.kingPos.w ? {...this.kingPos.w} : null, b: this.kingPos.b ? {...this.kingPos.b} : null }, multiJumpSource: null, changes: [], notation: { icon: this.draggedPiece.data.s, start: startCoord, end: endCoord, cap: isCap } };
+                                        
+                                        const recordState = (col, row) => { const k = this.getKey(col, row); const v = this.grid.get(k); historyStep.changes.push({ key: k, value: v }); };
+                                        recordState(this.draggedPiece.startC, this.draggedPiece.startR); recordState(c, r);
+                                        if (chosenMove.captured) recordState(chosenMove.captured.x, chosenMove.captured.y); // Запис видаленої шашки
+                                        
+                                        this.moveHistory.push(historyStep);
+                                        this.updateLogUI();
+                                        
+                                        // Фізичне переміщення
+                                        this.removePiece(this.draggedPiece.startC, this.draggedPiece.startR);
+                                        this.draggedPiece.data.x = c; this.draggedPiece.data.y = r; this.draggedPiece.data.hasMoved = true;
+                                        this.setPiece(c, r, this.draggedPiece.data);
+                                        
+                                        // --- ПЕРЕВІРКА МУЛЬТИ-БІЙ (ШАШКИ) ---
+                                        if (this.checkersSymbols.has(this.draggedPiece.data.s) && chosenMove.isCapture) {
+                                            // Перевіряємо, чи є ще бій з НОВОЇ позиції
+                                            const followUpMoves = this.getCheckersMoves(this.draggedPiece.data, c, r, true); // true = onlyCaptures
+                                            if (followUpMoves.length > 0) {
+                                                this.multiJumpSource = { c: c, r: r }; // Фіксуємо джерело стрибків
+                                                // НЕ ПЕРЕДАЄМО ХІД, оновлюємо UI і виходимо
+                                                this.isDraggingPiece = false;
+                                                this.draggedPiece = null;
+                                                this.highlightedMoves = [];
+                                                this.updateUI();
+                                                return; 
+                                            }
+                                        }
+
+                                        this.multiJumpSource = null; // Скидаємо серію, якщо вона закінчилась
+                                        setTimeout(() => this.switchTurn(), 0);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                this.isDragging = false;
+                this.isDraggingPiece = false;
+                this.draggedPiece = null;
+                this.highlightedMoves = []; 
+                this.updateUI();
+            }
+
+
+            undoMove() {
+                if (this.moveHistory.length === 0) return;
+                const last = this.moveHistory.pop();
+
+                last.changes.forEach(change => {
+                    if (change.value === undefined) this.grid.delete(change.key);
+                    else this.grid.set(change.key, change.value);
+                });
+
+                this.currentTurn = last.turn;
+                this.kingPos = last.prevKingPos;
+                this.multiJumpSource = last.multiJumpSource;
+                this.gameOver = false;
+                this.promotionPending = null;
+                document.getElementById('promotionOverlay').style.display = 'none';
+                document.getElementById('gameOverOverlay').style.display = 'none';
+
+                this.highlightedMoves = [];
+                this.updateTurnIndicator();
+                this.updateUI();
+                this.updateLogUI(); // <--- ВАЖЛИВО
+            }
+
+            onKeyDown(e) {
+                if (this.gameOver || this.turnModeEnabled || this.promotionPending) return;
+                if (e.key === 'Delete') {
+                    // Default delete key behavior is now Undo via main listener
+                } else if (e.shiftKey && e.key === 'Delete') {
+                    // Eraser tool
+                    const w = this.screenToWorld(this.mouse.x, this.mouse.y);
+                    const c = Math.floor(w.x / this.cellSize);
+                    const r = Math.floor(w.y / this.cellSize);
+                    this.removePiece(c, r);
+                    this.updateUI();
+                }
+            }
+
+            screenToWorld(sx, sy) { return { x: (sx - this.camera.x) / this.camera.zoom, y: (sy - this.camera.y) / this.camera.zoom }; }
+
+            update() {
+                // Клавіатура (рухає ціль)
+                const moveSpeed = 15;
+                if (this.keys.ArrowLeft) this.targetCamera.x += moveSpeed;
+                if (this.keys.ArrowRight) this.targetCamera.x -= moveSpeed;
+                if (this.keys.ArrowUp) this.targetCamera.y += moveSpeed;
+                if (this.keys.ArrowDown) this.targetCamera.y -= moveSpeed;
+
+                // Інтерполяція (Lerp)
+                // Використовуємо один фактор для всього, щоб рух був синхронним
+                const factor = 0.12; 
+
+                // Перевіряємо різницю, щоб не рахувати зайвого (економія CPU)
+                const diffZ = Math.abs(this.targetCamera.zoom - this.camera.zoom);
+                const diffX = Math.abs(this.targetCamera.x - this.camera.x);
+                const diffY = Math.abs(this.targetCamera.y - this.camera.y);
+
+                // Поріг чутливості залежить від масштабу
+                const threshold = Math.max(1e-10, this.targetCamera.zoom * 0.0001);
+
+                if (diffZ > threshold || diffX > 1 || diffY > 1) {
+                    this.camera.zoom += (this.targetCamera.zoom - this.camera.zoom) * factor;
+                    this.camera.x += (this.targetCamera.x - this.camera.x) * factor;
+                    this.camera.y += (this.targetCamera.y - this.camera.y) * factor;
+
+                    // Оновлення UI
+                    if (this.camera.zoom > 0) {
+                        document.getElementById('zoomSlider').value = Math.log10(this.camera.zoom);
+                    }
+                    let disp = Math.round(this.camera.zoom * 100) + '%';
+                    if (this.camera.zoom < 0.01) disp = this.camera.zoom.toExponential(2);
+                    document.getElementById('zoomDisplay').innerText = disp;
+                } else {
+                    // "Примагнічуємо" в кінці анімації, щоб прибрати мікро-тремтіння
+                    this.camera.zoom = this.targetCamera.zoom;
+                    this.camera.x = this.targetCamera.x;
+                    this.camera.y = this.targetCamera.y;
+                }
+
+                // Обмежуємо камеру (щоб не полетіла в космос)
+                this.clampCamera();
+            }
+
+            drawCustomArrows(ctx, cs, bx, by) {
+                if (!this.customArrows.length) return;
+
+                ctx.save();
+                
+                // Стиль Lichess: Зелений, напівпрозорий
+                ctx.fillStyle = "rgba(21, 120, 27, 0.85)"; 
+                
+                // Налаштування пропорцій стрілки відносно розміру клітинки (cs)
+                const lineWidth = cs * 0.15;  // Товщина хвоста
+                const headLen = cs * 0.35;    // Довжина голови
+                const headWidth = cs * 0.45;  // Ширина голови
+
+                this.customArrows.forEach(arrow => {
+                    const startX = bx + arrow.sx * cs + cs / 2;
+                    const startY = by + arrow.sy * cs + cs / 2;
+                    const endX = bx + arrow.ex * cs + cs / 2;
+                    const endY = by + arrow.ey * cs + cs / 2;
+
+                    const dx = endX - startX;
+                    const dy = endY - startY;
+                    const angle = Math.atan2(dy, dx);
+                    const len = Math.hypot(dx, dy);
+
+                    // Якщо стрілка занадто коротка, не малюємо
+                    if (len < cs * 0.2) return;
+
+                    // Відступ назад, щоб вістря було точно в центрі клітинки,
+                    // але візуально не перекривало фігуру повністю (опціонально)
+                    const adjustedLen = len - (cs * 0.05);
+
+                    ctx.save();
+                    // Переносимо центр координат у початок стрілки і повертаємо
+                    ctx.translate(startX, startY);
+                    ctx.rotate(angle);
+
+                    // Малюємо стрілку як єдиний контур (щоб не було накладання кольорів)
+                    ctx.beginPath();
+                    
+                    // 1. Початок хвоста (верх)
+                    ctx.lineTo(0, -lineWidth / 2);
+                    
+                    // 2. Кінець хвоста перед головою (верх)
+                    ctx.lineTo(adjustedLen - headLen, -lineWidth / 2);
+                    
+                    // 3. Виступ голови (верх)
+                    ctx.lineTo(adjustedLen - headLen, -headWidth / 2);
+                    
+                    // 4. Вістря
+                    ctx.lineTo(adjustedLen, 0);
+                    
+                    // 5. Виступ голови (низ)
+                    ctx.lineTo(adjustedLen - headLen, headWidth / 2);
+                    
+                    // 6. Кінець хвоста перед головою (низ)
+                    ctx.lineTo(adjustedLen - headLen, lineWidth / 2);
+                    
+                    // 7. Початок хвоста (низ)
+                    ctx.lineTo(0, lineWidth / 2);
+                    
+                    ctx.closePath();
+                    ctx.fill();
+                    
+                    ctx.restore();
+                });
+                ctx.restore();
+            }
+            
+            render() {
+                const ctx = this.ctx;
+                const width = this.canvas.width; const height = this.canvas.height;
+                const cs = this.cellSize * this.camera.zoom;
+
+                // 1. Очищення
+                ctx.fillStyle = this.colors.void;
+                ctx.fillRect(0, 0, width, height);
+
+                const bx = this.camera.x; const by = this.camera.y;
+                // Межі видимого екрану (Viewport) в координатах сітки
+                const startCol = Math.floor((-this.camera.x) / cs);
+                const endCol = Math.floor((width - this.camera.x) / cs) + 1;
+                const startRow = Math.floor((-this.camera.y) / cs);
+                const endRow = Math.floor((height - this.camera.y) / cs) + 1;
+                
+                const boardPixelW = this.boardSize * cs; const boardPixelH = this.boardSize * cs;
+
+                // 2. Малювання дошки
+                if (bx < width && by < height && bx + boardPixelW > 0 && by + boardPixelH > 0) {
+                     ctx.fillStyle = this.colors.light;
+                     ctx.fillRect(Math.max(bx, 0), Math.max(by, 0), Math.min(boardPixelW, width), Math.min(boardPixelH, height));
+                     ctx.fillStyle = this.colors.dark;
+
+                     if (cs > 0.8) {
+                         ctx.beginPath();
+                         // Малюємо тільки видимі клітинки
+                         const renderStartC = Math.max(0, startCol);
+                         const renderEndC = Math.min(this.boardSize, endCol);
+                         const renderStartR = Math.max(0, startRow);
+                         const renderEndR = Math.min(this.boardSize, endRow);
+
+                         const gridSkip = (cs < 2) ? 2 : 1;
+                         for (let r = renderStartR; r < renderEndR; r += gridSkip) {
+                             let c = renderStartC;
+                             if ((r % 2) !== 0) { if (c % 2 !== 0) c++; } else { if (c % 2 === 0) c++; }
+                             for (; c < renderEndC; c += 2) {
+                                 ctx.rect((bx + c * cs) | 0, (by + r * cs) | 0, Math.ceil(cs), Math.ceil(cs));
+                             }
+                         }
+                         ctx.fill();
+                     } else {
+                         ctx.globalAlpha = 0.5;
+                         ctx.fillRect(Math.max(bx, 0), Math.max(by, 0), Math.min(boardPixelW, width), Math.min(boardPixelH, height));
+                         ctx.globalAlpha = 1.0;
+                     }
+                     ctx.strokeStyle = this.colors.border;
+                     ctx.lineWidth = Math.max(2, cs * 0.1);
+                     ctx.strokeRect(bx, by, boardPixelW, boardPixelH);
+                }
+
+                // 3. Підсвітка Шах/Мат
+                if (this.rulesEnabled && cs > 2) {
+                    for (const color of ['w', 'b']) {
+                        if (this.kingsInCheck[color]) {
+                            const k = this.kingsInCheck[color];
+                            // Перевіряємо, чи видно короля
+                            if (k.c >= startCol && k.c <= endCol && k.r >= startRow && k.r <= endRow) {
+                                ctx.fillStyle = (this.gameOver && this.currentTurn === color) ? this.colors.mateHighlight : this.colors.checkHighlight;
+                                ctx.fillRect(bx + k.c * cs, by + k.r * cs, cs, cs);
+                            }
+                        }
+                    }
+                }
+
+                // 4. ПІДСВІТКА ХОДІВ (ОПТИМІЗОВАНА ДЛЯ 1 МЛРД)
+                if (this.highlightedMoves.length > 0) {
+                    // Трохи розширюємо межі для плавності
+                    const viewMinC = startCol - 1;
+                    const viewMaxC = endCol + 1;
+                    const viewMinR = startRow - 1;
+                    const viewMaxR = endRow + 1;
+
+                    ctx.fillStyle = "rgba(46, 204, 113, 0.8)"; // Зелений для точок
+
+                    this.highlightedMoves.forEach(move => {
+                        // A. Рендеринг окремих точок (стрибки, атаки)
+                        if (move.type === 'point') {
+                            if (move.c >= viewMinC && move.c <= viewMaxC && move.r >= viewMinR && move.r <= viewMaxR) {
+                                const hx = bx + move.c * cs + cs/2;
+                                const hy = by + move.r * cs + cs/2;
+                                ctx.beginPath();
+                                if (move.capture) {
+                                    const capSize = Math.max(cs * 0.35, 4);
+                                    ctx.fillStyle = "rgba(200, 50, 50, 0.7)";
+                                    ctx.arc(hx, hy, capSize, 0, Math.PI * 2);
+                                    ctx.fill();
+                                    ctx.fillStyle = "rgba(46, 204, 113, 0.8)"; // Повертаємо зелений
+                                } else {
+                                    const dotSize = Math.max(cs * 0.18, 3);
+                                    ctx.arc(hx, hy, dotSize, 0, Math.PI * 2);
+                                    ctx.fill();
+                                }
+                            }
+                        } 
+                        // B. Рендеринг променів (RAYS) - Магія для мільярдів клітинок
+                        else if (move.type === 'ray') {
+                            // Ми маємо лінію: P = Start + t * Dir, де 0 < t <= len
+                            // Нам треба знайти діапазон T (t_min, t_max), який потрапляє у Viewport.
+
+                            let tMin = 1;         // Починаємо з 1 (наступна клітинка)
+                            let tMax = move.len;  // Максимальна довжина ходу
+
+                            // Відсікання по X
+                            if (move.dx > 0) {
+                                tMin = Math.max(tMin, viewMinC - move.cx);
+                                tMax = Math.min(tMax, viewMaxC - move.cx);
+                            } else if (move.dx < 0) {
+                                tMin = Math.max(tMin, move.cx - viewMaxC);
+                                tMax = Math.min(tMax, move.cx - viewMinC);
+                            } else {
+                                // Якщо рух вертикальний, перевіряємо, чи X в межах екрану
+                                if (move.cx < viewMinC || move.cx > viewMaxC) return; // Промінь за межами екрану по X
+                            }
+
+                            // Відсікання по Y
+                            if (move.dy > 0) {
+                                tMin = Math.max(tMin, viewMinR - move.cy);
+                                tMax = Math.min(tMax, viewMaxR - move.cy);
+                            } else if (move.dy < 0) {
+                                tMin = Math.max(tMin, move.cy - viewMaxR);
+                                tMax = Math.min(tMax, move.cy - viewMinR);
+                            } else {
+                                // Якщо рух горизонтальний, перевіряємо, чи Y в межах екрану
+                                if (move.cy < viewMinR || move.cy > viewMaxR) return; // Промінь за межами екрану по Y
+                            }
+
+                            // Якщо є перетин (видимий відрізок)
+                            if (tMin <= tMax) {
+                                // Цикл тільки по ВИДИМИХ клітинках (зазвичай 20-50 ітерацій, навіть якщо хід на мільярд)
+                                for (let t = tMin; t <= tMax; t++) {
+                                    const gridX = move.cx + t * move.dx;
+                                    const gridY = move.cy + t * move.dy;
+                                    
+                                    const hx = bx + gridX * cs + cs/2;
+                                    const hy = by + gridY * cs + cs/2;
+                                    
+                                    const dotSize = Math.max(cs * 0.18, 3);
+                                    
+                                    ctx.beginPath();
+                                    ctx.arc(hx, hy, dotSize, 0, Math.PI * 2);
+                                    ctx.fill();
+                                }
+                            }
+                        }
+                    });
+                }
+
+                // 5. Текст і Стрілки
+                if (cs > 5) this.drawCustomArrows(ctx, cs, bx, by);
+                if (cs > 25) {
+                    const fontSize = Math.max(cs * 0.25, 12); ctx.font = `bold ${fontSize}px Arial`;
+                    ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; const labelX = bx - 5;
+                    const rStart = Math.max(0, startRow); const rEnd = Math.min(this.boardSize, endRow);
+                    for(let r = rStart; r < rEnd; r++) {
+                        const rankVal = this.boardSize - r; const labelY = by + r*cs + cs/2;
+                        if(labelY > 0 && labelY < height) { ctx.fillStyle = '#ccc'; ctx.fillText(rankVal.toString(), labelX, labelY); }
+                    }
+                    ctx.textAlign = 'center'; ctx.textBaseline = 'top'; const labelYBottom = by + this.boardSize*cs + 5;
+                    const cStart = Math.max(0, startCol); const cEnd = Math.min(this.boardSize, endCol);
+                    for(let c = cStart; c < cEnd; c++) {
+                        const labelXPos = bx + c*cs + cs/2;
+                        if(labelXPos > 0 && labelXPos < width) { ctx.fillStyle = '#ccc'; ctx.fillText(this.getFileLabel(c), labelXPos, labelYBottom); }
+                    }
+                }
+
+                // 6. Фігури
+                const visibleCellsW = endCol - startCol;
+                const visibleCellsH = endRow - startRow;
+                const totalVisible = visibleCellsW * visibleCellsH;
+                let skip = 1;
+                // Адаптивний пропуск при сильному віддаленні, щоб не малювати тисячі іконок в одній точці
+                if (totalVisible > 50000) skip = Math.ceil(Math.sqrt(totalVisible / 50000));
+                
+                const minDrawSize = 12;
+                const drawSize = Math.max(cs, minDrawSize);
+
+                const renderStartC = Math.max(0, startCol);
+                const renderEndC = Math.min(this.boardSize, endCol);
+                const renderStartR = Math.max(0, startRow);
+                const renderEndR = Math.min(this.boardSize, endRow);
+
+                for (let r = renderStartR; r < renderEndR; r += skip) {
+                    for (let c = renderStartC; c < renderEndC; c += skip) {
+                        if (this.isDraggingPiece && this.draggedPiece && this.draggedPiece.startC === c && this.draggedPiece.startR === r) continue;
+                        const piece = this.getPiece(c, r);
+                        if (!piece) continue;
+                        const px = (bx + c * cs + cs/2) | 0;
+                        const py = (by + r * cs + cs/2) | 0;
+                        const sprite = this.getLowResSprite(piece.s, piece.c);
+                        ctx.drawImage(sprite, px - drawSize/2, py - drawSize/2, drawSize, drawSize);
+                    }
+                }
+
+                if (this.isDraggingPiece && this.draggedPiece) {
+                    this.drawPiece(ctx, this.draggedPiece.data, this.mouse.x | 0, this.mouse.y | 0, Math.max(cs, 40));
+                }
+            }
+
+            drawPiece(ctx, pieceData, x, y, size) {
+                const sprite = this.getPieceSprite(pieceData.s, pieceData.c);
+                const drawSize = size * 0.85;
+                ctx.drawImage(sprite, (x - drawSize/2) | 0, (y - drawSize/2) | 0, drawSize | 0, drawSize | 0);
+            }
+
+            formatCount(n) {
+                if (!isFinite(n)) return "Нескінченність";
+                if (n < 1000) return n;
+
+                // --- Етап 1: Скорочення для "малих" великих чисел ---
+                // (Використовуємо загальноприйняті абревіатури)
+                if (n < 1e12) {
+                    if (n >= 1e9) return (n / 1e9).toFixed(2) + " млрд";
+                    if (n >= 1e6) return (n / 1e6).toFixed(2) + " млн";
+                    return (n / 1000).toFixed(1) + " тис.";
+                }
+
+                // --- Етап 2: Повні назви від Трильйона ---
+                
+                // Визначаємо порядок числа
+                let exp = Math.floor(Math.log10(n) / 3);
+
+                // Базовий список повних назв (до Децильйона включно)
+                // Індекси відповідають степеням: 3->тис, 4->трлн і т.д.
+                // Нам потрібні індекси від 4 (10^12)
+                const fullNames = [
+                    "", "", "", "", // 0-3 пропускаємо (там тис, млн, млрд)
+                    " трильйонів",      // 4 (10^12)
+                    " квадрильйонів",   // 5 (10^15)
+                    " квінтильйонів",   // 6 (10^18)
+                    " секстильйонів",   // 7 (10^21)
+                    " септильйонів",    // 8 (10^24)
+                    " октильйонів",     // 9 (10^27)
+                    " нонільйонів",     // 10 (10^30)
+                    " децильйонів"      // 11 (10^33)
+                ];
+
+                if (exp < fullNames.length) {
+                    return (n / Math.pow(10, exp * 3)).toFixed(2) + fullNames[exp];
+                }
+
+                // --- Етап 3: Генератор складних назв (після Децильйона) ---
+                // Формула: [Префікс одиниць] + [Корінь десятків] + "ільйонів"
+                
+                const units = ["", "Ун", "Дуо", "Тре", "Кватуор", "Квін", "Секс", "Септен", "Окто", "Новем"];
+                const tens = ["", "Дец", "Вігінт", "Тригінт", "Квадрагінт", "Квінквагінт", "Сексагінт", "Септуагінт", "Октогінт", "Нонагінт"];
+
+                // Корекція індексу
+                let idx = exp - 1; 
+                const unitIdx = idx % 10;
+                const tenIdx = Math.floor(idx / 10);
+
+                // Останнє число - Центільйон
+                if (tenIdx >= 10) return (n / 1e303).toFixed(2) + " Центільйонів";
+
+                // Склеюємо: наприклад "Ун" + "Дец" + "ільйонів"
+                const suffix = " " + units[unitIdx] + tens[tenIdx] + "ільйонів";
+
+                return (n / Math.pow(10, exp * 3)).toFixed(2) + suffix;
+            }
+
+            updatePieceCounts() {
+                let w = 0, b = 0;
+
+                // 1. БАЗОВИЙ ПІДРАХУНОК (Для віртуальних/процедурних дошок)
+                if (this.virtualGen) {
+                    let rows = 0;
+                    if (this.virtualGen === 'chess960') {
+                        rows = 2; 
+                    } else {
+                        rows = Math.floor(this.boardSize * (this.virtualProps.percent / 100));
+                        if (this.virtualGen !== 'checkers' && rows < 2) rows = 2;
+                    }
+                    
+                    let totalBase = this.boardSize * rows; 
+                    
+                    if (this.virtualGen === 'checkers') {
+                        totalBase = Math.floor(totalBase / 2);
+                    }
+
+                    w = totalBase;
+                    b = totalBase;
+                }
+
+                // 2. КОРЕКЦІЯ НА ОСНОВІ ЗМІН (GRID)
+                for (const [key, val] of this.grid) {
+                    const [cx, cy] = key.split(',').map(Number);
+
+                    if (this.virtualGen) {
+                        let rows = 0;
+                        if (this.virtualGen === 'chess960') rows = 2;
+                        else {
+                            rows = Math.floor(this.boardSize * (this.virtualProps.percent / 100));
+                            if (this.virtualGen !== 'checkers' && rows < 2) rows = 2;
+                        }
+
+                        if (cy < rows) {
+                            if (this.virtualGen !== 'checkers' || this.isDarkSquare(cx, cy)) {
+                                b--; 
+                            }
+                        }
+                        else if (cy >= this.boardSize - rows) {
+                            if (this.virtualGen !== 'checkers' || this.isDarkSquare(cx, cy)) {
+                                w--;
+                            }
+                        }
+                    }
+
+                    if (val !== GRID_VOID) {
+                        const id = val & 0xFFFF;
+                        const p = this.palette[id - 1];
+                        if (p.c === 'w') w++;
+                        else if (p.c === 'b') b++;
+                    }
+                }
+
+                // --- 3. НОВИЙ ВИВІД В HTML (З ТОЧНОЮ КІЛЬКІСТЮ) ---
+                
+                // Використовуємо BigInt, щоб число не втрачало точність на дошках 1M x 1M
+                const totalSquaresBig = BigInt(this.boardSize) * BigInt(this.boardSize);
+                
+                // Зберігаємо ваше скорочення (наприклад "1 млн")
+                const shortStr = this.formatCount(Number(totalSquaresBig));
+                
+                // Генеруємо точне число з пробілами (наприклад "1 000 000")
+                const exactStr = totalSquaresBig.toLocaleString('uk-UA');
+
+                // Формуємо рядок: якщо число велике (>999), показуємо [точне] поруч
+                let countDisplay = shortStr;
+                if (totalSquaresBig > 999n) {
+                    countDisplay = `${shortStr} <span style="font-size:0.85em; color:#555; font-weight:normal;">[${exactStr}]</span>`;
+                } else {
+                    countDisplay = exactStr;
+                }
+
+                const boardInfo = `${this.boardSize}x${this.boardSize}, ${countDisplay}`;
+
+                const html = `
+                    <div style="margin-bottom: 4px; border-bottom: 1px solid rgba(0,0,0,0.1); padding-bottom: 4px; font-size: 13px; color: #333;">
+                        📏 Клітинки: <b>(${boardInfo})</b>
+                    </div>
+                    <span style="color:#555; font-weight:bold;">Фігур: ${this.formatCount(w+b)}</span> 
+                    (<span style="color:#27ae60">Б: ${this.formatCount(w)}</span> | 
+                    <span style="color:#c0392b">Ч: ${this.formatCount(b)}</span>)
+                `;
+                document.getElementById('count').innerHTML = html;
+            }
+
+            updateUI() {
+                // Викликаємо нашу нову функцію підрахунку
+                this.updatePieceCounts();
+            }
+
+            animate() {
+                const now = performance.now();
+                if (Math.random() < 0.05) document.getElementById('fps').innerText = Math.round(1000 / (now - this.renderTime || 16));
+                this.renderTime = now;
+                this.update();
+                this.render();
+                requestAnimationFrame(() => this.animate());
+            }
+        }
+
+        const game = new SmoothChess();
+    </script>
+</body>
+</html>
