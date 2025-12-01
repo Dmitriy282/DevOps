@@ -258,7 +258,7 @@
 
         <div class="control-group">
             <label>Розмір дошки:</label>
-            <input type="number" id="boardSize" value="32" min="2">
+            <input type="text" id="boardSize" value="32" placeholder="Розмір..." oninput="game.setSize(this.value)">
             <div class="btn-row">
                 <button class="secondary" onclick="game.setSize(100)">100</button>
                 <button class="secondary" onclick="game.setSize(1000)">1K</button>
@@ -986,12 +986,23 @@ const megaDefs = {
             }
 
             setSize(n) {
-                // Прибираємо верхнє обмеження. 
-                // Залишаємо лише мінімальне (2), щоб не зламати гру від'ємними числами.
-                this.boardSize = Math.max(2, parseInt(n) || 32);
+                // Зберігаємо "сирий" рядок для BigInt розрахунків
+                let rawVal = String(n).trim();
                 
-                // Оновлюємо значення в полі вводу
-                document.getElementById('boardSize').value = this.boardSize;
+                // Для внутрішньої логіки гри (рендерінгу) нам все одно потрібен Number.
+                // Якщо число завелике, воно стане Infinity, і це нормально для рендера (ми просто малюємо скільки влазить).
+                // Але ми не даємо йому бути менше 2.
+                let parsed = parseInt(rawVal);
+                
+                // Якщо це не число - ставимо 32. Якщо число - беремо його (або Infinity).
+                this.boardSize = isNaN(parsed) ? 32 : Math.max(2, parsed);
+
+                // ВАЖЛИВО: Оновлюємо поле вводу тільки якщо це не ручне введення
+                // (тобто якщо ми натиснули кнопку "1M", а не друкуємо самі)
+                const inputEl = document.getElementById('boardSize');
+                if (document.activeElement !== inputEl) {
+                    inputEl.value = rawVal;
+                }
 
                 this.grid.clear();
                 this.moveHistory = [];
@@ -3076,21 +3087,30 @@ switchTurn() {
                 const boardPixelW = this.boardSize * cs; const boardPixelH = this.boardSize * cs;
 
                 // 2. Малювання дошки
+                // 2. Малювання дошки
                 if (bx < width && by < height && bx + boardPixelW > 0 && by + boardPixelH > 0) {
                      ctx.fillStyle = this.colors.light;
-                     ctx.fillRect(Math.max(bx, 0), Math.max(by, 0), Math.min(boardPixelW, width), Math.min(boardPixelH, height));
+                     
+                     // ОПТИМІЗАЦІЯ: Якщо розмір дошки Infinity (через величезне число), малюємо на весь екран
+                     const drawW = (boardPixelW > width || !isFinite(boardPixelW)) ? width : boardPixelW;
+                     const drawH = (boardPixelH > height || !isFinite(boardPixelH)) ? height : boardPixelH;
+
+                     ctx.fillRect(Math.max(bx, 0), Math.max(by, 0), drawW, drawH);
                      ctx.fillStyle = this.colors.dark;
 
-                     if (cs > 0.8) {
+                     // ОПТИМІЗАЦІЯ: Малюємо квадратики тільки якщо вони більші за 3 пікселі
+                     // Якщо cs дуже малий, малювати мільйони квадратиків — це смерть для FPS. 
+                     // Тому малюємо просто суцільний напівпрозорий шар (ефект середнього кольору).
+                     if (cs > 3) {
                          ctx.beginPath();
                          const renderStartC = Math.max(0, startCol);
                          const renderEndC = Math.min(this.boardSize, endCol);
                          const renderStartR = Math.max(0, startRow);
                          const renderEndR = Math.min(this.boardSize, endRow);
 
-                         const gridSkip = (cs < 2) ? 2 : 1;
-                         for (let r = renderStartR; r < renderEndR; r += gridSkip) {
+                         for (let r = renderStartR; r < renderEndR; r++) {
                              let c = renderStartC;
+                             // Логіка шахівниці: (r+c) непарне = темне
                              if ((r % 2) !== 0) { if (c % 2 !== 0) c++; } else { if (c % 2 === 0) c++; }
                              for (; c < renderEndC; c += 2) {
                                  ctx.rect((bx + c * cs) | 0, (by + r * cs) | 0, Math.ceil(cs), Math.ceil(cs));
@@ -3098,13 +3118,19 @@ switchTurn() {
                          }
                          ctx.fill();
                      } else {
+                         // Режим "Solid": Просто заливаємо темним кольором з прозорістю 50%
                          ctx.globalAlpha = 0.5;
-                         ctx.fillRect(Math.max(bx, 0), Math.max(by, 0), Math.min(boardPixelW, width), Math.min(boardPixelH, height));
+                         ctx.fillRect(Math.max(bx, 0), Math.max(by, 0), drawW, drawH);
                          ctx.globalAlpha = 1.0;
                      }
+                     
                      ctx.strokeStyle = this.colors.border;
                      ctx.lineWidth = Math.max(2, cs * 0.1);
-                     ctx.strokeRect(bx, by, boardPixelW, boardPixelH);
+                     
+                     // Малюємо рамку, тільки якщо розміри скінченні (щоб не ламало канвас при 10^2625)
+                     if (isFinite(boardPixelW) && isFinite(boardPixelH)) {
+                        ctx.strokeRect(bx, by, boardPixelW, boardPixelH);
+                     }
                 }
 
                 // 3. Підсвітка Шах/Мат
@@ -3259,140 +3285,192 @@ switchTurn() {
             }
 
             formatCount(n) {
-                if (!isFinite(n)) return "Нескінченність";
-                if (n < 1000) return n;
+                if (typeof n === 'number' && !isFinite(n)) return "Нескінченність";
 
-                // --- Етап 1: Скорочення для "малих" великих чисел ---
-                // (Використовуємо загальноприйняті абревіатури)
-                if (n < 1e12) {
-                    if (n >= 1e9) return (n / 1e9).toFixed(2) + " млрд";
-                    if (n >= 1e6) return (n / 1e6).toFixed(2) + " млн";
-                    return (n / 1000).toFixed(1) + " тис.";
+                let bigN;
+                try {
+                    bigN = BigInt(n);
+                } catch (e) {
+                    return "Помилка числа";
                 }
 
-                // --- Етап 2: Повні назви від Трильйона ---
+                if (bigN < 1000000n) return bigN.toLocaleString('uk-UA');
+
+                // 1. Отримуємо рядок числа
+                let s = bigN.toString();
+                let exp = s.length - 1; // Степінь (кількість нулів)
+
+                // Пасхалка Гугол
+                if (exp >= 100 && exp < 103) return "10^" + exp + " (Гугол)";
+
+                // 2. Рахуємо номер -ільйона (N)
+                // N = (порядок - 1) / 3
+                // Для 10^445: N = (445 / 3) - 1 = 148 - 1 = 147
+                let nIllion = (BigInt(exp) / 3n) - 1n;
+
+                // 3. Мантиса (красивий вивід перших цифр, напр. 9.99)
+                let firstDigits = s.substring(0, 4);
+                let mantissaVal = parseFloat(firstDigits) / 1000;
+                let mod = exp % 3;
+                if (mod === 1) mantissaVal *= 10;
+                if (mod === 2) mantissaVal *= 100;
+
+                // --- СИСТЕМА КОНВЕЯ-ВЕКСЛЕРА (UKR WIKI) ---
                 
-                // Визначаємо порядок числа
-                let exp = Math.floor(Math.log10(n) / 3);
+                // Правильний порядок: Одиниці -> Десятки -> Сотні
+                // Винятки модифікацій букв тут спрощені для програмної реалізації
+                
+                const ones = ["", "Ун", "Дуо", "Тре", "Кватуор", "Квін", "Секс", "Септен", "Окто", "Новем"];
+                const tens = ["", "Деци", "Вігінті", "Тригінті", "Квадрагінті", "Квінквагінті", "Сексагінті", "Септуагінті", "Октогінті", "Нонагінті"];
+                const hundreds = ["", "Центі", "Дуценті", "Треценті", "Квадрінгенті", "Квінгенті", "Сесценті", "Септингенті", "Октінгенті", "Нонгенті"];
 
-                // Базовий список повних назв (до Децильйона включно)
-                // Індекси відповідають степеням: 3->тис, 4->трлн і т.д.
-                // Нам потрібні індекси від 4 (10^12)
-                const fullNames = [
-                    "", "", "", "", // 0-3 пропускаємо (там тис, млн, млрд)
-                    " трильйонів",      // 4 (10^12)
-                    " квадрильйонів",   // 5 (10^15)
-                    " квінтильйонів",   // 6 (10^18)
-                    " секстильйонів",   // 7 (10^21)
-                    " септильйонів",    // 8 (10^24)
-                    " октильйонів",     // 9 (10^27)
-                    " нонільйонів",     // 10 (10^30)
-                    " децильйонів"      // 11 (10^33)
-                ];
+                // Функція для числа 1..999
+                const getLatinPart = (num) => {
+                    let val = Number(num);
+                    if (val === 0) return "";
+                    
+                    let u = val % 10;             // Одиниці
+                    let t = Math.floor((val % 100) / 10); // Десятки
+                    let h = Math.floor(val / 100);        // Сотні
 
-                if (exp < fullNames.length) {
-                    return (n / Math.pow(10, exp * 3)).toFixed(2) + fullNames[exp];
+                    // Спеціальні випадки (наприклад, Тре змінюється на Трес перед певними буквами),
+                    // але базова конкатенація дає зрозумілий результат.
+                    
+                    // ПОРЯДОК: Одиниці + Десятки + Сотні
+                    // 147 = 7(Септен) + 40(Квадрагінті) + 100(Центі)
+                    
+                    let str = ones[u] + tens[t] + hundreds[h];
+                    
+                    // Косметична чистка (видалення подвійних голосних, якщо треба, але для гри це ок)
+                    return str;
+                };
+
+                const buildName = (valBig) => {
+                    // Базові (звичні) назви
+                    if (valBig === 0n) return "Ніл";
+                    if (valBig === 1n) return "Міль";
+                    if (valBig === 2n) return "Біль";
+                    if (valBig === 3n) return "Триль";
+                    if (valBig === 4n) return "Квадриль";
+                    if (valBig === 5n) return "Квінтиль";
+                    if (valBig === 6n) return "Секстиль";
+                    if (valBig === 7n) return "Септиль";
+                    if (valBig === 8n) return "Октиль";
+                    if (valBig === 9n) return "Ноніль";
+                    if (valBig === 10n) return "Дециль";
+
+                    // Рекурсія для "Мілліа" (тисяч ільйонів)
+                    let parts = [];
+                    let tempVal = valBig;
+                    let level = 0; // 0=нічого, 1=мілліа, 2=мілліамілліа...
+
+                    while (tempVal > 0n) {
+                        let chunk = tempVal % 1000n;
+                        
+                        if (chunk > 0n) {
+                            let latin = getLatinPart(chunk);
+                            
+                            // Додаємо суфікс "мілліа"
+                            // 1 рівень = "мілліа", 2 = "мілліамілліа"
+                            let suffix = "";
+                            for(let i=0; i<level; i++) suffix += "мілліа";
+                            
+                            // Якщо це рівно 1000 (chunk==1 на рівні 1), кажемо просто "Мілліа", а не "Унмілліа"
+                            if (chunk === 1n && level > 0) latin = "";
+
+                            parts.unshift(latin + suffix);
+                        }
+                        tempVal = tempVal / 1000n;
+                        level++;
+                    }
+                    return parts.join("");
+                };
+
+                let name = buildName(nIllion);
+
+                // Обрізка для UI, якщо назва довша за 60 символів
+                if (name.length > 60) {
+                    let start = name.substring(0, 25);
+                    let end = name.substring(name.length - 25);
+                    return mantissaVal.toFixed(2) + " " + start + "..." + end + "йонів"; // Скорочено
                 }
 
-                // --- Етап 3: Генератор складних назв (після Децильйона) ---
-                // Формула: [Префікс одиниць] + [Корінь десятків] + "ільйонів"
-                
-                const units = ["", "Ун", "Дуо", "Тре", "Кватуор", "Квін", "Секс", "Септен", "Окто", "Новем"];
-                const tens = ["", "Дец", "Вігінт", "Тригінт", "Квадрагінт", "Квінквагінт", "Сексагінт", "Септуагінт", "Октогінт", "Нонагінт"];
-
-                // Корекція індексу
-                let idx = exp - 1; 
-                const unitIdx = idx % 10;
-                const tenIdx = Math.floor(idx / 10);
-
-                // Останнє число - Центільйон
-                if (tenIdx >= 10) return (n / 1e303).toFixed(2) + " Центільйонів";
-
-                // Склеюємо: наприклад "Ун" + "Дец" + "ільйонів"
-                const suffix = " " + units[unitIdx] + tens[tenIdx] + "ільйонів";
-
-                return (n / Math.pow(10, exp * 3)).toFixed(2) + suffix;
+                return mantissaVal.toFixed(2) + " " + name + "йонів";
             }
 
             updatePieceCounts() {
-                let w = 0, b = 0;
+                let w = 0n;
+                let b = 0n;
+                
+                // 1. ОТРИМАННЯ РОЗМІРУ (КРИТИЧНО ВАЖЛИВО)
+                let rawInput = document.getElementById('boardSize').value.trim();
+                let bs = 32n; // За замовчуванням
 
-                // 1. БАЗОВИЙ ПІДРАХУНОК (Для віртуальних/процедурних дошок)
+                try {
+                    if (!rawInput) {
+                        bs = 32n;
+                    } 
+                    // Якщо це науковий формат (1e+200)
+                    else if (rawInput.toLowerCase().includes('e')) {
+                        let parts = rawInput.toLowerCase().split('e');
+                        let base = parts[0];
+                        let power = parseInt(parts[1].replace('+',''));
+                        // Створюємо рядок: 1 + нулі
+                        let zeros = '0'.repeat(power);
+                        // Ігноруємо дрібну частину бази для надійності при створенні BigInt
+                        let baseInt = Math.floor(parseFloat(base)).toString();
+                        bs = BigInt(baseInt + zeros);
+                    } 
+                    // Якщо це просто довгий рядок цифр (999999....)
+                    else {
+                        bs = BigInt(rawInput);
+                    }
+                } catch(e) {
+                    console.error("Помилка числа:", e);
+                    bs = 32n;
+                }
+
+                // 2. ОБЧИСЛЕННЯ КІЛЬКОСТІ ФІГУР
                 if (this.virtualGen) {
-                    let rows = 0;
+                    let rows = 0n;
                     if (this.virtualGen === 'chess960') {
-                        rows = 2; 
+                        rows = 2n; 
                     } else {
-                        rows = Math.floor(this.boardSize * (this.virtualProps.percent / 100));
-                        if (this.virtualGen !== 'checkers' && rows < 2) rows = 2;
+                        let percent = BigInt(Math.floor(this.virtualProps.percent));
+                        rows = (bs * percent) / 100n;
+                        if (this.virtualGen !== 'checkers' && rows < 2n) rows = 2n;
                     }
                     
-                    let totalBase = this.boardSize * rows; 
-                    
-                    if (this.virtualGen === 'checkers') {
-                        totalBase = Math.floor(totalBase / 2);
-                    }
+                    let totalBase = bs * rows; 
+                    if (this.virtualGen === 'checkers') totalBase = totalBase / 2n;
 
                     w = totalBase;
                     b = totalBase;
                 }
 
-                // 2. КОРЕКЦІЯ НА ОСНОВІ ЗМІН (GRID)
+                // Корекція ручних змін (Grid)
                 for (const [key, val] of this.grid) {
-                    const [cx, cy] = key.split(',').map(Number);
-
-                    if (this.virtualGen) {
-                        let rows = 0;
-                        if (this.virtualGen === 'chess960') rows = 2;
-                        else {
-                            rows = Math.floor(this.boardSize * (this.virtualProps.percent / 100));
-                            if (this.virtualGen !== 'checkers' && rows < 2) rows = 2;
-                        }
-
-                        if (cy < rows) {
-                            if (this.virtualGen !== 'checkers' || this.isDarkSquare(cx, cy)) {
-                                b--; 
-                            }
-                        }
-                        else if (cy >= this.boardSize - rows) {
-                            if (this.virtualGen !== 'checkers' || this.isDarkSquare(cx, cy)) {
-                                w--;
-                            }
-                        }
-                    }
-
                     if (val !== GRID_VOID) {
                         const id = val & 0xFFFF;
                         const p = this.palette[id - 1];
-                        if (p.c === 'w') w++;
-                        else if (p.c === 'b') b++;
+                        if (p.c === 'w') w = w + 1n;
+                        else if (p.c === 'b') b = b + 1n;
                     }
                 }
 
-                // --- 3. НОВИЙ ВИВІД В HTML (З ТОЧНОЮ КІЛЬКІСТЮ) ---
+                // 3. ВИВІД
+                const totalSquaresBig = bs * bs;
                 
-                // Використовуємо BigInt, щоб число не втрачало точність на дошках 1M x 1M
-                const totalSquaresBig = BigInt(this.boardSize) * BigInt(this.boardSize);
-                
-                // Зберігаємо ваше скорочення (наприклад "1 млн")
-                const shortStr = this.formatCount(Number(totalSquaresBig));
-                
-                // Генеруємо точне число з пробілами (наприклад "1 000 000")
-                const exactStr = totalSquaresBig.toLocaleString('uk-UA');
-
-                // Формуємо рядок: якщо число велике (>999), показуємо [точне] поруч
-                let countDisplay = shortStr;
-                if (totalSquaresBig > 999n) {
-                    countDisplay = `${shortStr} <span style="font-size:0.85em; color:#555; font-weight:normal;">[${exactStr}]</span>`;
-                } else {
-                    countDisplay = exactStr;
-                }
-
-                const boardInfo = `${this.boardSize}x${this.boardSize}, ${countDisplay}`;
+                // Рахуємо степінь (10^X) для довідки
+                let sLen = totalSquaresBig.toString().length - 1;
 
                 const html = `
                     <div style="margin-bottom: 4px; border-bottom: 1px solid rgba(0,0,0,0.1); padding-bottom: 4px; font-size: 13px; color: #333;">
-                        📏 Клітинки: <b>(${boardInfo})</b>
+                         📐 Площа: <b>${this.formatCount(totalSquaresBig)}</b> 
+                         <span style="font-size:10px;color:#777;display:block">(10^${sLen})</span>
+                         <div style="font-size:10px; color:#555; word-break: break-all; margin-top:3px; max-height:60px; overflow-y:auto; background:rgba(0,0,0,0.03); padding:2px; border-radius:4px;">
+                            ${totalSquaresBig.toString()}
+                         </div>
                     </div>
                     <span style="color:#555; font-weight:bold;">Фігур: ${this.formatCount(w+b)}</span> 
                     (<span style="color:#27ae60">Б: ${this.formatCount(w)}</span> | 
