@@ -2837,6 +2837,90 @@ switchTurn() {
                     });
                 }
             }
+
+            // --- МЕТОДИ ДЛЯ ПЕРЕТВОРЕННЯ ПІШАКА (PROMOTION) ---
+
+            showPromotionDialog(color) {
+                const grid = document.getElementById('promotionGrid');
+                grid.innerHTML = ''; // Очищаємо попередні кнопки
+
+                // Список фігур, на які можна перетворити пішака
+                // (Ферзь, Тура, Слон, Кінь)
+                const options = ['♕', '♖', '♗', '♘'];
+                
+                // Мапа для чорних фігур (якщо ходять чорні)
+                const blackMap = { '♕':'♛', '♖':'♜', '♗':'♝', '♘':'♞' };
+
+                options.forEach(symbol => {
+                    const actualSymbol = (color === 'w') ? symbol : blackMap[symbol];
+                    
+                    const btn = document.createElement('button');
+                    btn.className = 'promo-btn';
+                    btn.innerText = actualSymbol;
+                    
+                    // Стилізація для чорних фігур (щоб було видно на білому фоні)
+                    if (color === 'b') {
+                        btn.style.color = '#000'; 
+                    }
+
+                    // При кліку викликаємо перетворення
+                    btn.onclick = () => this.promotePawn(actualSymbol);
+                    
+                    grid.appendChild(btn);
+                });
+
+                // Показуємо меню
+                document.getElementById('promotionOverlay').style.display = 'flex';
+            }
+
+            promotePawn(symbol) {
+                if (!this.promotionPending) return;
+
+                const { piece, startC, startR, endC, endR } = this.promotionPending;
+
+                // 1. ЗАПИС В ІСТОРІЮ (Щоб працював UNDO)
+                const startCoord = this.getCoordString(startC, startR);
+                const endCoord = this.getCoordString(endC, endR);
+                const capturedPiece = this.getPiece(endC, endR);
+                const isCap = !!capturedPiece;
+
+                const historyStep = {
+                    turn: this.currentTurn,
+                    prevKingPos: { w: this.kingPos.w ? {...this.kingPos.w} : null, b: this.kingPos.b ? {...this.kingPos.b} : null },
+                    multiJumpSource: null,
+                    changes: [],
+                    notation: { icon: symbol, start: startCoord, end: endCoord, cap: isCap, promo: true }
+                };
+
+                // Функція для запису стану клітинок до змін
+                const recordState = (col, row) => {
+                    const k = this.getKey(col, row);
+                    const v = this.grid.get(k);
+                    historyStep.changes.push({ key: k, value: v });
+                };
+
+                recordState(startC, startR); // Записуємо стартову клітинку
+                recordState(endC, endR);     // Записуємо кінцеву клітинку (де буде нова фігура)
+
+                this.moveHistory.push(historyStep);
+                this.updateLogUI();
+
+                // 2. ФІЗИЧНЕ ПЕРЕМІЩЕННЯ ТА ЗАМІНА
+                this.removePiece(startC, startR); // Видаляємо старого пішака
+                
+                // Створюємо нову фігуру з вибраним символом
+                const newPieceData = { s: symbol, c: piece.c, hasMoved: true, x: endC, y: endR };
+                this.setPiece(endC, endR, newPieceData);
+
+                // 3. ЗАВЕРШЕННЯ
+                document.getElementById('promotionOverlay').style.display = 'none';
+                this.promotionPending = null;
+                
+                // Передаємо хід
+                setTimeout(() => this.switchTurn(), 0);
+                this.updateUI();
+            }
+            
             onMouseDown(e) {
                 if (this.gameOver || this.isGenerating || this.promotionPending) return;
                 
@@ -3299,29 +3383,34 @@ switchTurn() {
                     }
                 }
 
-                if (this.highlightedMoves.length > 0 && cs > 2) {
+                if (this.highlightedMoves.length > 0) {
                     ctx.fillStyle = "rgba(46, 204, 113, 0.8)"; 
                     this.highlightedMoves.forEach(move => {
-                        if (move.type === 'point') {
-                            if (move.c >= startCol-1 && move.c <= endCol && move.r >= startRow-1 && move.r <= endRow) {
+                        // Малюємо тільки те, що влазить в екран (Viewport culling)
+                        if (move.c >= startCol-1 && move.c <= endCol && move.r >= startRow-1 && move.r <= endRow) {
+                            if (move.type === 'point') {
                                 const hx = bx + move.c * cs + cs/2;
                                 const hy = by + move.r * cs + cs/2;
                                 ctx.beginPath();
+                                
+                                // ВАЖЛИВО: Мінімальний розмір крапки = 3px
+                                let radius = Math.max(cs * 0.18, 3);
+                                if (move.capture) radius = Math.max(cs * 0.35, 4);
+
                                 if (move.capture) {
                                     ctx.fillStyle = "rgba(200, 50, 50, 0.7)";
-                                    ctx.arc(hx, hy, Math.max(cs * 0.35, 4), 0, Math.PI * 2); ctx.fill();
+                                    ctx.arc(hx, hy, radius, 0, Math.PI * 2); ctx.fill();
                                     ctx.fillStyle = "rgba(46, 204, 113, 0.8)"; 
                                 } else {
-                                    ctx.arc(hx, hy, Math.max(cs * 0.18, 3), 0, Math.PI * 2); ctx.fill();
+                                    ctx.arc(hx, hy, radius, 0, Math.PI * 2); ctx.fill();
                                 }
+                            } else if (move.type === 'ray') {
+                                let cx = bx + move.cx * cs + cs/2; let cy = by + move.cy * cs + cs/2;
+                                let ex = bx + (move.cx + move.dx * move.len) * cs + cs/2;
+                                let ey = by + (move.cy + move.dy * move.len) * cs + cs/2;
+                                ctx.beginPath(); ctx.strokeStyle = "rgba(46, 204, 113, 0.8)";
+                                ctx.lineWidth = Math.max(cs * 0.3, 2); ctx.moveTo(cx, cy); ctx.lineTo(ex, ey); ctx.stroke();
                             }
-                        } else if (move.type === 'ray') {
-                            // Rays drawing logic (shortened for brevity, same as before)
-                            let cx = bx + move.cx * cs + cs/2; let cy = by + move.cy * cs + cs/2;
-                            let ex = bx + (move.cx + move.dx * move.len) * cs + cs/2;
-                            let ey = by + (move.cy + move.dy * move.len) * cs + cs/2;
-                            ctx.beginPath(); ctx.strokeStyle = "rgba(46, 204, 113, 0.8)";
-                            ctx.lineWidth = Math.max(cs * 0.3, 2); ctx.moveTo(cx, cy); ctx.lineTo(ex, ey); ctx.stroke();
                         }
                     });
                 }
