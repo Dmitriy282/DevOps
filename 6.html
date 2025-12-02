@@ -1799,7 +1799,24 @@ getVirtualPiece(c, r) {
                
 
             getFileLabel(index) { let label = ""; index++; while (index > 0) { let rem = (index - 1) % 26; label = String.fromCharCode(97 + rem) + label; index = Math.floor((index - 1) / 26); } return label; }
-            isPathClear(c1, r1, c2, r2) { const dx = Math.sign(c2 - c1); const dy = Math.sign(r2 - r1); let x = c1 + dx; let y = r1 + dy; while (x !== c2 || y !== r2) { if (this.getPiece(x,y)) return false; x += dx; y += dy; } return true; }
+           isPathClear(c1, r1, c2, r2) { 
+                const dx = Math.sign(c2 - c1); 
+                const dy = Math.sign(r2 - r1); 
+                
+                // Безпечний ліміт кроків
+                const steps = Math.max(Math.abs(c2 - c1), Math.abs(r2 - r1));
+                
+                let x = c1 + dx; 
+                let y = r1 + dy; 
+                
+                // Використовуємо for замість while для безпеки
+                for (let i = 0; i < steps - 1; i++) {
+                    if (this.getPiece(x, y)) return false; 
+                    x += dx; 
+                    y += dy; 
+                }
+                return true; 
+            }
 
              canCheckersCapture(piece, cx, cy, ignoredPiece) {
                 const isKing = ['⛁', '⛃'].includes(piece.s);
@@ -2162,41 +2179,43 @@ findKing(color) {
                 console.log(`Чергу змінено на: ${this.currentTurn === 'w' ? 'Білі' : 'Чорні'}`);
             }
 switchTurn() {
-                if (!this.turnModeEnabled) return;
+    if (!this.turnModeEnabled) return;
 
-                this.currentTurn = this.currentTurn === 'w' ? 'b' : 'w';
+    this.currentTurn = this.currentTurn === 'w' ? 'b' : 'w';
 
-                // Оновлення статусу шаху
-                if (this.virtualGen !== 'checkers') {
-                    this.kingsInCheck.w = this.isInCheck('w') ? this.findKing('w') : null;
-                    this.kingsInCheck.b = this.isInCheck('b') ? this.findKing('b') : null;
-                } else {
-                    this.kingsInCheck = { w: null, b: null };
-                }
+    if (this.virtualGen !== 'checkers') {
+        this.kingsInCheck.w = this.isInCheck('w') ? this.findKing('w') : null;
+        this.kingsInCheck.b = this.isInCheck('b') ? this.findKing('b') : null;
+    } else {
+        this.kingsInCheck = { w: null, b: null };
+    }
 
-                this.updateTurnIndicator();
+    this.updateTurnIndicator();
 
-                // Затримка перед перевіркою мату, щоб браузер встиг намалювати останній хід
-                setTimeout(() => {
-                    // Якщо ходів немає...
-                    if (!this.hasAnyLegalMoves(this.currentTurn)) {
-                        
-                        if (this.virtualGen === 'checkers') {
-                             // У шашках відсутність ходів = поразка
-                             this.endGame("ПЕРЕМОГА!"); 
-                        } 
-                        else {
-                            // У шахах: якщо шах + немає ходів = МАТ. Якщо немає шаху + немає ходів = ПАТ.
-                            if (this.kingsInCheck[this.currentTurn]) {
-                                this.endGame("МАТ!"); 
-                            } else {
-                                this.showStalemate(); 
-                            }
-                        }
-                    }
-                }, 50);
+    // ВИПРАВЛЕННЯ: Швидка перевірка мату
+    setTimeout(() => {
+        if (this.gameOver) return;
+        
+        // Якщо є шах, перевіряємо мат
+        if (this.kingsInCheck[this.currentTurn]) {
+            if (!this.hasAnyLegalMoves(this.currentTurn)) {
+                this.endGame("МАТ!");
+                return;
             }
-            
+        }
+        
+        // Якщо немає шаху, перевіряємо пат (тільки для малих дошок)
+        if (this.boardSize <= 100) {
+            if (!this.hasAnyLegalMoves(this.currentTurn)) {
+                if (this.virtualGen === 'checkers') {
+                    this.endGame("ПЕРЕМОГА!");
+                } else {
+                    this.showStalemate();
+                }
+            }
+        }
+    }, 100); // Збільшено затримку до 100мс
+}
             updateTurnIndicator() {
                 const ind = document.getElementById('turnIndicator');
                 const txt = document.getElementById('turnText');
@@ -2300,11 +2319,36 @@ switchTurn() {
                 if (checkPawn(1) || checkPawn(-1)) return true;
 
                 // ОПТИМІЗОВАНА ПЕРЕВІРКА ЛІНІЙ (Raycast)
+               // ОПТИМІЗОВАНА ПЕРЕВІРКА ЛІНІЙ (Raycast)
                 const checkRayOptimized = (dx, dy, types) => {
+                    
+                    // --- ФІКС ПОЧАТОК: Для стандартних шахів використовуємо точний скан ---
+                    if (this.boardSize <= 200) {
+                        let x = targetC + dx;
+                        let y = targetR + dy;
+                        while (x >= 0 && x < this.boardSize && y >= 0 && y < this.boardSize) {
+                            const p = this.getPiece(x, y);
+                            if (p) {
+                                // Якщо зустріли фігуру:
+                                if (p.c === byOpponentOfColor) {
+                                    // Це ворог? Чи може він атакувати так (types)?
+                                    if (types.includes(p.s)) return true;
+                                    // Додаткова перевірка для Королеви/Ферзя проти мега-фігур
+                                    if (types.includes(enemyQueen) && ['🧜','🔱','🦅'].includes(p.s)) return true;
+                                }
+                                // Будь-яка фігура (своя чи чужа, яка не атакує) блокує лінію
+                                return false;
+                            }
+                            x += dx; y += dy;
+                        }
+                        return false;
+                    }
+                    // --- ФІКС КІНЕЦЬ ---
+
                     let closestDist = Infinity;
                     let closestPiece = null;
 
-                    // А. Перевірка реальних фігур
+                    // А. Перевірка реальних фігур (Grid) - (код без змін)
                     for (const [key, val] of this.grid) {
                         if (val === GRID_VOID) continue; 
                         const comma = key.indexOf(',');
@@ -2333,7 +2377,7 @@ switchTurn() {
                         }
                     }
 
-                    // Б. Перевірка Віртуальних Армій
+                    // Б. Перевірка Віртуальних Армій (Original Optimization)
                     if (this.virtualGen) {
                          let armyH = 0;
                          if (this.virtualGen === 'chess960') armyH = 2;
@@ -2386,95 +2430,88 @@ switchTurn() {
             isInCheck(kingColor) { const kingPos = this.findKing(kingColor); if (!kingPos) return false; return this.isSquareAttacked(kingPos.c, kingPos.r, kingColor === 'w' ? 'b' : 'w'); }
             updateKingCheckStatus(color) { this.kingsInCheck[color] = this.isInCheck(color) ? this.findKing(color) : null; }
 
-            hasAnyLegalMoves(color) {
-                const startTime = performance.now();
-                
-                // --- ВИПРАВЛЕННЯ ТУТ ---
-                // Якщо дошка невелика (<= 100 клітинок), ми ЗАВЖДИ чекаємо результат (Infinity),
-                // щоб гарантовано показати МАТ.
-                // Для гігантських дошок даємо 500мс (пів секунди), цього достатньо.
-                const MAX_CALC_TIME_MS = (this.boardSize <= 100) ? Infinity : 500;
+           hasAnyLegalMoves(color) {
+    // КРИТИЧНО: Обмежуємо перевірку для великих дошок
+    const MAX_CHECKS = 500; // Перевіряємо максимум 500 фігур
+    let checked = 0;
+    
+    // --- 1. ПРІОРИТЕТ: Чи може втекти КОРОЛЬ? ---
+    const kPos = this.findKing(color);
+    if (kPos) {
+        const kPiece = this.getPiece(kPos.c, kPos.r);
+        if (kPiece) {
+            const moves = this.generatePotentialMoves(kPiece, kPos.c, kPos.r);
+            for (const m of moves) {
+                if (this.simulateMoveAndCheckSafety(kPiece, kPos.c, kPos.r, m.c, m.r)) {
+                    return true; // Король може втекти
+                }
+            }
+        }
+    }
 
-                // --- 1. ПРІОРИТЕТ: Чи може втекти КОРОЛЬ? ---
-                const kPos = this.findKing(color);
-                if (kPos) {
-                    const kPiece = this.getPiece(kPos.c, kPos.r);
-                    const moves = this.generatePotentialMoves(kPiece, kPos.c, kPos.r);
-                    for (const m of moves) {
-                        if (this.simulateMoveAndCheckSafety(kPiece, kPos.c, kPos.r, m.c, m.r)) {
-                            return true; 
-                        }
+    // --- 2. ПЕРЕВІРКА РЕАЛЬНИХ ФІГУР (Grid) ---
+    for (const [key, val] of this.grid) {
+        if (checked >= MAX_CHECKS) return true; // Припускаємо, що є ходи
+        if (val === GRID_VOID) continue;
+        
+        const comma = key.indexOf(',');
+        const cx = parseInt(key.substring(0, comma));
+        const cy = parseInt(key.substring(comma + 1));
+        const id = val & 0xFFFF;
+        const p = this.palette[id-1];
+        
+        if (p.c === color && (cx !== kPos?.c || cy !== kPos?.r)) {
+            const moves = this.generatePotentialMoves(p, cx, cy);
+            if (this.checkersSymbols.has(p.s)) {
+                if (moves.length > 0) return true;
+            } else {
+                for (const m of moves) {
+                    if (this.simulateMoveAndCheckSafety(p, cx, cy, m.c, m.r)) {
+                        return true;
                     }
                 }
+            }
+            checked++;
+        }
+    }
 
-                // --- 2. ПЕРЕВІРКА ІНШИХ ФІГУР ---
-                const checkPiece = (p, cx, cy) => {
-                    if (cx === kPos?.c && cy === kPos?.r) return false;
+    // --- 3. ВИБІРКОВА ПЕРЕВІРКА ВІРТУАЛЬНИХ (тільки якщо дошка мала) ---
+    if (this.virtualGen && this.boardSize < 100) {
+        let armyHeight = Math.floor(this.boardSize * (this.virtualProps.percent / 100));
+        if (this.virtualGen === 'chess960') armyHeight = 2;
+        else if (armyHeight < 2 && this.virtualGen !== 'checkers') armyHeight = 2;
 
-                    const moves = this.generatePotentialMoves(p, cx, cy);
-                    // Для шашок
-                    if (this.checkersSymbols.has(p.s)) return moves.length > 0;
+        const ranges = [
+            {start: 0, end: armyHeight},
+            {start: this.boardSize - armyHeight, end: this.boardSize}
+        ];
 
-                    // Для шахів
-                    for (const m of moves) {
-                        if (this.simulateMoveAndCheckSafety(p, cx, cy, m.c, m.r)) {
-                            return true; // Знайшли рятівний хід!
-                        }
-                    }
-                    return false;
-                };
+        for (const range of ranges) {
+            for (let r = range.start; r < range.end && checked < MAX_CHECKS; r++) {
+                for (let c = 0; c < this.boardSize && checked < MAX_CHECKS; c++) {
+                    if (this.grid.has(this.getKey(c, r))) continue;
 
-                // А. Перевірка реальних фігур (Grid)
-                for (const [key, val] of this.grid) {
-                    // Перевіряємо таймер
-                    if (performance.now() - startTime > MAX_CALC_TIME_MS) return true; 
-
-                    if (val === GRID_VOID) continue;
-                    const comma = key.indexOf(',');
-                    const cx = parseInt(key.substring(0, comma));
-                    const cy = parseInt(key.substring(comma + 1));
-                    const id = val & 0xFFFF;
-                    const p = this.palette[id-1];
-                    
-                    if (p.c === color) {
-                        if (checkPiece(p, cx, cy)) return true;
-                    }
-                }
-
-                // Б. Перевірка віртуальних фігур (Армія)
-                if (this.virtualGen) {
-                    let armyHeight = Math.floor(this.boardSize * (this.virtualProps.percent / 100));
-                    if (this.virtualGen === 'chess960') armyHeight = 2;
-                    else if (armyHeight < 2 && this.virtualGen !== 'checkers') armyHeight = 2;
-
-                    const ranges = [
-                        {start: 0, end: armyHeight},
-                        {start: this.boardSize - armyHeight, end: this.boardSize}
-                    ];
-
-                    for (const range of ranges) {
-                        for (let r = range.start; r < range.end; r++) {
-                            // Перевірка таймера
-                            if (performance.now() - startTime > MAX_CALC_TIME_MS) return true;
-
-                            // Оптимізація кроку для гігантських світів
-                            let step = 1; 
-                            if (this.boardSize > 2000) step = 10;
-
-                            for (let c = 0; c < this.boardSize; c += step) {
-                                if (this.grid.has(this.getKey(c, r))) continue;
-
-                                const p = this.getVirtualPiece(c, r);
-                                if (p && p.c === color) {
-                                    if (checkPiece(p, c, r)) return true;
+                    const p = this.getVirtualPiece(c, r);
+                    if (p && p.c === color) {
+                        const moves = this.generatePotentialMoves(p, c, r);
+                        if (this.checkersSymbols.has(p.s)) {
+                            if (moves.length > 0) return true;
+                        } else {
+                            for (const m of moves) {
+                                if (this.simulateMoveAndCheckSafety(p, c, r, m.c, m.r)) {
+                                    return true;
                                 }
                             }
                         }
+                        checked++;
                     }
                 }
-
-                return false; // Жодних ходів не знайдено -> МАТ
             }
+        }
+    }
+
+    return false; // Якщо дійшли сюди після 500 перевірок - це МАТ або ПАТ
+}
             _resolveDirs(d) { return typeof d === 'string' ? DIRS[d] : d; }
 
             generatePotentialMoves(piece, cx, cy, bounds = null) {
