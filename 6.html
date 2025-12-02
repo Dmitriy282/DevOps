@@ -2179,44 +2179,134 @@ findKing(color) {
                 console.log(`Чергу змінено на: ${this.currentTurn === 'w' ? 'Білі' : 'Чорні'}`);
             }
 switchTurn() {
-    if (!this.turnModeEnabled) return;
+                if (!this.turnModeEnabled) return;
 
-    this.currentTurn = this.currentTurn === 'w' ? 'b' : 'w';
+                this.currentTurn = this.currentTurn === 'w' ? 'b' : 'w';
 
-    if (this.virtualGen !== 'checkers') {
-        this.kingsInCheck.w = this.isInCheck('w') ? this.findKing('w') : null;
-        this.kingsInCheck.b = this.isInCheck('b') ? this.findKing('b') : null;
-    } else {
-        this.kingsInCheck = { w: null, b: null };
-    }
-
-    this.updateTurnIndicator();
-
-    // ВИПРАВЛЕННЯ: Швидка перевірка мату
-    setTimeout(() => {
-        if (this.gameOver) return;
-        
-        // Якщо є шах, перевіряємо мат
-        if (this.kingsInCheck[this.currentTurn]) {
-            if (!this.hasAnyLegalMoves(this.currentTurn)) {
-                this.endGame("МАТ!");
-                return;
-            }
-        }
-        
-        // Якщо немає шаху, перевіряємо пат (тільки для малих дошок)
-        if (this.boardSize <= 100) {
-            if (!this.hasAnyLegalMoves(this.currentTurn)) {
-                if (this.virtualGen === 'checkers') {
-                    this.endGame("ПЕРЕМОГА!");
+                // Оновлюємо статус шаху (тільки для шахів)
+                if (this.virtualGen !== 'checkers') {
+                    this.kingsInCheck.w = this.isInCheck('w') ? this.findKing('w') : null;
+                    this.kingsInCheck.b = this.isInCheck('b') ? this.findKing('b') : null;
                 } else {
-                    this.showStalemate();
+                    this.kingsInCheck = { w: null, b: null };
                 }
+
+                this.updateTurnIndicator();
+
+                setTimeout(() => {
+                    if (this.gameOver) return;
+
+                    // --- ФІКС: ПЕРЕВІРКА НАЯВНОСТІ ФІГУР ---
+                    // Якщо у гравця, чий зараз хід, немає жодної фігури на дошці — 
+                    // це означає, що ми в режимі редактора/пісочниці.
+                    // Не оголошуємо ПАТ/МАТ, просто даємо грати далі.
+                    
+                    let hasMaterial = false;
+                    // Швидке сканування (тільки для нормальних дошок, щоб не гальмувало на 1М)
+                    if (this.boardSize <= 500) {
+                        for (let r = 0; r < this.boardSize; r++) {
+                            for (let c = 0; c < this.boardSize; c++) {
+                                const p = this.getPiece(c, r);
+                                if (p && p.c === this.currentTurn) {
+                                    hasMaterial = true;
+                                    break;
+                                }
+                            }
+                            if (hasMaterial) break;
+                        }
+                    } else {
+                        hasMaterial = true; // На гігантських дошках ігноруємо цю перевірку
+                    }
+
+                    // Якщо фігур немає і це НЕ офіційна гра в шашки — виходимо (не показуємо табличку)
+                    if (!hasMaterial && this.virtualGen !== 'checkers') return;
+                    // ---------------------------------------
+
+                    // Перевірка на МАТ/ПАТ (Стандартна логіка)
+                    if (this.kingsInCheck[this.currentTurn]) {
+                        if (!this.hasAnyLegalMoves(this.currentTurn)) {
+                            this.endGame("МАТ!");
+                        }
+                    } else if (this.boardSize <= 100) {
+                        if (!this.hasAnyLegalMoves(this.currentTurn)) {
+                            if (this.virtualGen === 'checkers') this.endGame("ПЕРЕМОГА!");
+                            else this.showStalemate();
+                        }
+                    }
+                }, 50);
             }
-        }
-    }, 100); // Збільшено затримку до 100мс
-}
-            updateTurnIndicator() {
+
+            isSquareAttacked(targetC, targetR, byOpponentOfColor) {
+                // 1. Швидка перевірка ворожого КОРОЛЯ
+                const enemyKingPos = this.findKing(byOpponentOfColor);
+                if (enemyKingPos) {
+                    const dkx = Math.abs(enemyKingPos.c - targetC);
+                    const dky = Math.abs(enemyKingPos.r - targetR);
+                    if (dkx <= 1 && dky <= 1) return true;
+                }
+
+                // 2. Визначення ворожих фігур
+                const enemyQueen = byOpponentOfColor === 'w' ? '♕' : '♛';
+                const enemyRook = byOpponentOfColor === 'w' ? '♖' : '♜';
+                const enemyBishop = byOpponentOfColor === 'w' ? '♗' : '♝';
+                const enemyKnight = byOpponentOfColor === 'w' ? '♘' : '♞';
+                const enemyPawn = byOpponentOfColor === 'w' ? '♙' : '♟';
+
+                // 3. Перевірка Конів
+                const knights = [[1,2],[1,-2],[-1,2],[-1,-2],[2,1],[2,-1],[-2,1],[-2,-1]];
+                for (const [dx, dy] of knights) {
+                    const p = this.getPiece(targetC + dx, targetR + dy);
+                    if (p && p.c === byOpponentOfColor && (p.s === enemyKnight || p.s === '🦄')) return true;
+                }
+
+                // 4. Перевірка Пішаків
+                const pawnDy = byOpponentOfColor === 'w' ? 1 : -1;
+                const checkPawn = (offset) => {
+                     const p = this.getPiece(targetC + offset, targetR + pawnDy);
+                     return p && p.c === byOpponentOfColor && p.s === enemyPawn;
+                }
+                if (checkPawn(1) || checkPawn(-1)) return true;
+
+                // 5. НАДІЙНА ПЕРЕВІРКА ЛІНІЙ (Raycast)
+                // Використовуємо простий цикл, який гарантовано бачить і реальні, і віртуальні фігури
+                const checkRay = (dx, dy, types) => {
+                    let x = targetC + dx;
+                    let y = targetR + dy;
+                    
+                    // Обмеження циклу для безпеки (на 8x8 воно не спрацює, на 1М захистить від зависання)
+                    let steps = 0;
+                    const maxSteps = (this.boardSize > 500) ? 500 : this.boardSize;
+
+                    while (x >= 0 && x < this.boardSize && y >= 0 && y < this.boardSize && steps < maxSteps) {
+                        const p = this.getPiece(x, y); // Ця функція коректно повертає фігуру з будь-якого режиму
+                        if (p) {
+                            // Якщо знайшли фігуру
+                            if (p.c === byOpponentOfColor) {
+                                // Це ворог. Чи може він бити?
+                                if (types.includes(p.s)) return true;
+                                if (types.includes(enemyQueen) && ['🧜','🔱','🦅'].includes(p.s)) return true;
+                            }
+                            // Будь-яка фігура (своя або чужа, що не б'є) перекриває лінію
+                            return false;
+                        }
+                        x += dx; 
+                        y += dy;
+                        steps++;
+                    }
+                    return false;
+                };
+
+                if (checkRay(0, 1, [enemyRook, enemyQueen])) return true;
+                if (checkRay(0, -1, [enemyRook, enemyQueen])) return true;
+                if (checkRay(1, 0, [enemyRook, enemyQueen])) return true;
+                if (checkRay(-1, 0, [enemyRook, enemyQueen])) return true;
+                if (checkRay(1, 1, [enemyBishop, enemyQueen])) return true;
+                if (checkRay(1, -1, [enemyBishop, enemyQueen])) return true;
+                if (checkRay(-1, 1, [enemyBishop, enemyQueen])) return true;
+                if (checkRay(-1, -1, [enemyBishop, enemyQueen])) return true;
+
+                return false;
+            }            updateTurnIndicator() {
                 const ind = document.getElementById('turnIndicator');
                 const txt = document.getElementById('turnText');
                 const icon = document.getElementById('turnIcon');
@@ -2287,16 +2377,13 @@ switchTurn() {
             }
 
             isSquareAttacked(targetC, targetR, byOpponentOfColor) {
-                // 1. Швидка перевірка ворожого КОРОЛЯ (Це те, чого не вистачало!)
+                // Перевірка ворожого Короля (швидка)
                 const enemyKingPos = this.findKing(byOpponentOfColor);
                 if (enemyKingPos) {
-                    const dkx = Math.abs(enemyKingPos.c - targetC);
-                    const dky = Math.abs(enemyKingPos.r - targetR);
-                    // Якщо клітинка поруч з ворожим королем — вона під атакою
-                    if (dkx <= 1 && dky <= 1) return true;
+                    if (Math.abs(enemyKingPos.c - targetC) <= 1 && Math.abs(enemyKingPos.r - targetR) <= 1) return true;
                 }
 
-                // 2. Стандартні перевірки (Коні, Пішаки, Промені)
+                // Визначаємо типи ворожих фігур
                 const enemyQueen = byOpponentOfColor === 'w' ? '♕' : '♛';
                 const enemyRook = byOpponentOfColor === 'w' ? '♖' : '♜';
                 const enemyBishop = byOpponentOfColor === 'w' ? '♗' : '♝';
@@ -2311,207 +2398,139 @@ switchTurn() {
                 }
 
                 // Перевірка Пішаків
-                const pawnDy = byOpponentOfColor === 'w' ? 1 : -1;
-                const checkPawn = (offset) => {
-                     const p = this.getPiece(targetC + offset, targetR + pawnDy);
-                     return p && p.c === byOpponentOfColor && p.s === enemyPawn;
-                }
-                if (checkPawn(1) || checkPawn(-1)) return true;
+                // Білі пiшаки б'ють "вгору" (зменшення Y), Чорні "вниз" (збільшення Y)
+                // Але координати Y у нас: 0 - верх, BoardSize - низ.
+                // Білі знизу (великий Y), б'ють в бік малого Y. Тобто dy = 1 (ми дивимось НАЗАД від цілі)
+                const pawnDir = byOpponentOfColor === 'w' ? 1 : -1;
+                const p1 = this.getPiece(targetC + 1, targetR + pawnDir);
+                const p2 = this.getPiece(targetC - 1, targetR + pawnDir);
+                if (p1 && p1.c === byOpponentOfColor && p1.s === enemyPawn) return true;
+                if (p2 && p2.c === byOpponentOfColor && p2.s === enemyPawn) return true;
 
-                // ОПТИМІЗОВАНА ПЕРЕВІРКА ЛІНІЙ (Raycast)
-               // ОПТИМІЗОВАНА ПЕРЕВІРКА ЛІНІЙ (Raycast)
-                const checkRayOptimized = (dx, dy, types) => {
-                    
-                    // --- ФІКС ПОЧАТОК: Для стандартних шахів використовуємо точний скан ---
-                    if (this.boardSize <= 200) {
-                        let x = targetC + dx;
-                        let y = targetR + dy;
-                        while (x >= 0 && x < this.boardSize && y >= 0 && y < this.boardSize) {
-                            const p = this.getPiece(x, y);
-                            if (p) {
-                                // Якщо зустріли фігуру:
-                                if (p.c === byOpponentOfColor) {
-                                    // Це ворог? Чи може він атакувати так (types)?
-                                    if (types.includes(p.s)) return true;
-                                    // Додаткова перевірка для Королеви/Ферзя проти мега-фігур
-                                    if (types.includes(enemyQueen) && ['🧜','🔱','🦅'].includes(p.s)) return true;
-                                }
-                                // Будь-яка фігура (своя чи чужа, яка не атакує) блокує лінію
-                                return false;
+                // Перевірка Ліній (Тури, Слони, Ферзі) - ПРОСТИЙ СКАНЕР
+                const checkLine = (dx, dy, types) => {
+                    let x = targetC + dx;
+                    let y = targetR + dy;
+                    // Скануємо до кінця дошки
+                    while (x >= 0 && x < this.boardSize && y >= 0 && y < this.boardSize) {
+                        const p = this.getPiece(x, y);
+                        if (p) {
+                            // Якщо це ворог і він вміє так ходити -> Атака
+                            if (p.c === byOpponentOfColor) {
+                                if (types.includes(p.s)) return true;
+                                if (types.includes(enemyQueen) && ['🧜','🔱','🦅'].includes(p.s)) return true;
                             }
-                            x += dx; y += dy;
+                            return false; // Будь-яка фігура перекриває лінію
                         }
-                        return false;
-                    }
-                    // --- ФІКС КІНЕЦЬ ---
-
-                    let closestDist = Infinity;
-                    let closestPiece = null;
-
-                    // А. Перевірка реальних фігур (Grid) - (код без змін)
-                    for (const [key, val] of this.grid) {
-                        if (val === GRID_VOID) continue; 
-                        const comma = key.indexOf(',');
-                        const pc = parseInt(key.substring(0, comma));
-                        const pr = parseInt(key.substring(comma + 1));
-                        const distC = pc - targetC;
-                        const distR = pr - targetR;
-                        
-                        let valid = false;
-                        let d = Infinity;
-                        
-                        if (dx !== 0 && dy !== 0) { // Діагональ
-                            if (Math.abs(distC) === Math.abs(distR) && Math.sign(distC) === dx && Math.sign(distR) === dy) {
-                                valid = true; d = Math.abs(distC);
-                            }
-                        } else if (dx !== 0) { // Горизонталь
-                            if (distR === 0 && Math.sign(distC) === dx) { valid = true; d = Math.abs(distC); }
-                        } else { // Вертикаль
-                            if (distC === 0 && Math.sign(distR) === dy) { valid = true; d = Math.abs(distR); }
-                        }
-
-                        if (valid && d < closestDist) {
-                            closestDist = d;
-                            const id = val & 0xFFFF;
-                            closestPiece = this.palette[id-1];
-                        }
-                    }
-
-                    // Б. Перевірка Віртуальних Армій (Original Optimization)
-                    if (this.virtualGen) {
-                         let armyH = 0;
-                         if (this.virtualGen === 'chess960') armyH = 2;
-                         else if (this.virtualGen !== 'checkers') {
-                             armyH = Math.floor(this.boardSize * (this.virtualProps.percent / 100));
-                             if (armyH < 2) armyH = 2;
-                         } else {
-                             armyH = Math.floor(this.boardSize * (this.virtualProps.percent / 100));
-                         }
-                         const topBoundary = armyH; 
-                         const botBoundary = this.boardSize - armyH;
-                         let vDist = Infinity;
-
-                         if (dy !== 0) {
-                             if (dy < 0) { if (targetR >= topBoundary) vDist = targetR - (topBoundary - 1); } 
-                             else { if (targetR < botBoundary) vDist = botBoundary - targetR; }
-                         } else {
-                             if (targetR < topBoundary || targetR >= botBoundary) vDist = 1;
-                         }
-
-                         if (vDist < closestDist) {
-                             const vx = targetC + dx * vDist; const vy = targetR + dy * vDist;
-                             if (vx >= 0 && vx < this.boardSize && vy >= 0 && vy < this.boardSize) {
-                                 const vp = this.getPiece(vx, vy);
-                                 if (vp) { closestDist = vDist; closestPiece = vp; }
-                             }
-                         }
-                    }
-
-                    // В. Фінальна перевірка
-                    if (closestPiece && closestPiece.c === byOpponentOfColor) {
-                        if (types.includes(closestPiece.s)) return true;
-                        if (types.includes(enemyQueen) && ['🧜','🔱','🦅'].includes(closestPiece.s)) return true;
+                        x += dx; y += dy;
                     }
                     return false;
                 };
 
-                if (checkRayOptimized(0, 1, [enemyRook, enemyQueen])) return true;
-                if (checkRayOptimized(0, -1, [enemyRook, enemyQueen])) return true;
-                if (checkRayOptimized(1, 0, [enemyRook, enemyQueen])) return true;
-                if (checkRayOptimized(-1, 0, [enemyRook, enemyQueen])) return true;
-                if (checkRayOptimized(1, 1, [enemyBishop, enemyQueen])) return true;
-                if (checkRayOptimized(1, -1, [enemyBishop, enemyQueen])) return true;
-                if (checkRayOptimized(-1, 1, [enemyBishop, enemyQueen])) return true;
-                if (checkRayOptimized(-1, -1, [enemyBishop, enemyQueen])) return true;
+                // Прямі лінії
+                if (checkLine(0, 1, [enemyRook, enemyQueen])) return true;
+                if (checkLine(0, -1, [enemyRook, enemyQueen])) return true;
+                if (checkLine(1, 0, [enemyRook, enemyQueen])) return true;
+                if (checkLine(-1, 0, [enemyRook, enemyQueen])) return true;
+                // Діагоналі
+                if (checkLine(1, 1, [enemyBishop, enemyQueen])) return true;
+                if (checkLine(1, -1, [enemyBishop, enemyQueen])) return true;
+                if (checkLine(-1, 1, [enemyBishop, enemyQueen])) return true;
+                if (checkLine(-1, -1, [enemyBishop, enemyQueen])) return true;
 
                 return false;
             }
+
 
             isInCheck(kingColor) { const kingPos = this.findKing(kingColor); if (!kingPos) return false; return this.isSquareAttacked(kingPos.c, kingPos.r, kingColor === 'w' ? 'b' : 'w'); }
             updateKingCheckStatus(color) { this.kingsInCheck[color] = this.isInCheck(color) ? this.findKing(color) : null; }
 
            hasAnyLegalMoves(color) {
-    // КРИТИЧНО: Обмежуємо перевірку для великих дошок
-    const MAX_CHECKS = 500; // Перевіряємо максимум 500 фігур
-    let checked = 0;
-    
-    // --- 1. ПРІОРИТЕТ: Чи може втекти КОРОЛЬ? ---
-    const kPos = this.findKing(color);
-    if (kPos) {
-        const kPiece = this.getPiece(kPos.c, kPos.r);
-        if (kPiece) {
-            const moves = this.generatePotentialMoves(kPiece, kPos.c, kPos.r);
-            for (const m of moves) {
-                if (this.simulateMoveAndCheckSafety(kPiece, kPos.c, kPos.r, m.c, m.r)) {
-                    return true; // Король може втекти
-                }
-            }
-        }
-    }
+                // Обмежувач для гігантських дошок, але на 8х8 перевірить все
+                const MAX_CHECKS = (this.boardSize < 20) ? 1000 : 500;
+                let checked = 0;
 
-    // --- 2. ПЕРЕВІРКА РЕАЛЬНИХ ФІГУР (Grid) ---
-    for (const [key, val] of this.grid) {
-        if (checked >= MAX_CHECKS) return true; // Припускаємо, що є ходи
-        if (val === GRID_VOID) continue;
-        
-        const comma = key.indexOf(',');
-        const cx = parseInt(key.substring(0, comma));
-        const cy = parseInt(key.substring(comma + 1));
-        const id = val & 0xFFFF;
-        const p = this.palette[id-1];
-        
-        if (p.c === color && (cx !== kPos?.c || cy !== kPos?.r)) {
-            const moves = this.generatePotentialMoves(p, cx, cy);
-            if (this.checkersSymbols.has(p.s)) {
-                if (moves.length > 0) return true;
-            } else {
-                for (const m of moves) {
-                    if (this.simulateMoveAndCheckSafety(p, cx, cy, m.c, m.r)) {
-                        return true;
+                // А. Спочатку перевіряємо КОРОЛЯ (найчастіший вихід з мату)
+                const kPos = this.findKing(color);
+                if (kPos) {
+                    const kPiece = this.getPiece(kPos.c, kPos.r);
+                    if (kPiece) {
+                        const moves = this.generatePotentialMoves(kPiece, kPos.c, kPos.r);
+                        for (const m of moves) {
+                            if (this.simulateMoveAndCheckSafety(kPiece, kPos.c, kPos.r, m.c, m.r)) {
+                                return true; // Король може втекти
+                            }
+                        }
                     }
                 }
-            }
-            checked++;
-        }
-    }
 
-    // --- 3. ВИБІРКОВА ПЕРЕВІРКА ВІРТУАЛЬНИХ (тільки якщо дошка мала) ---
-    if (this.virtualGen && this.boardSize < 100) {
-        let armyHeight = Math.floor(this.boardSize * (this.virtualProps.percent / 100));
-        if (this.virtualGen === 'chess960') armyHeight = 2;
-        else if (armyHeight < 2 && this.virtualGen !== 'checkers') armyHeight = 2;
+                // Б. Перевіряємо ВСІ фігури на дошці (як реальні, так і віртуальні)
+                // Для малих дошок (як 8х8) просто скануємо всю дошку, це найнадійніше.
+                if (this.boardSize <= 20) {
+                    for (let r = 0; r < this.boardSize; r++) {
+                        for (let c = 0; c < this.boardSize; c++) {
+                            const p = this.getPiece(c, r);
+                            if (p && p.c === color) {
+                                // Пропускаємо короля, бо ми його вже перевірили
+                                if (p.s === '♔' || p.s === '♚') continue;
 
-        const ranges = [
-            {start: 0, end: armyHeight},
-            {start: this.boardSize - armyHeight, end: this.boardSize}
-        ];
-
-        for (const range of ranges) {
-            for (let r = range.start; r < range.end && checked < MAX_CHECKS; r++) {
-                for (let c = 0; c < this.boardSize && checked < MAX_CHECKS; c++) {
-                    if (this.grid.has(this.getKey(c, r))) continue;
-
-                    const p = this.getVirtualPiece(c, r);
-                    if (p && p.c === color) {
-                        const moves = this.generatePotentialMoves(p, c, r);
-                        if (this.checkersSymbols.has(p.s)) {
-                            if (moves.length > 0) return true;
-                        } else {
-                            for (const m of moves) {
-                                if (this.simulateMoveAndCheckSafety(p, c, r, m.c, m.r)) {
-                                    return true;
+                                const moves = this.generatePotentialMoves(p, c, r);
+                                for (const m of moves) {
+                                    if (this.simulateMoveAndCheckSafety(p, c, r, m.c, m.r)) {
+                                        // console.log("Рятівний хід знайдено:", p.s, c, r, "->", m.c, m.r); // Розкоментуйте для дебагу
+                                        return true;
+                                    }
                                 }
                             }
                         }
-                        checked++;
+                    }
+                } else {
+                    // В. Для великих дошок - стара логіка з Grid + Virtual Ranges
+                    // ... (тут залишаємо ваш старий код для оптимізації, якщо треба, 
+                    // але для фіксу мату на 8х8 блоку Б достатньо) ...
+                    
+                    // Перевірка Grid
+                    for (const [key, val] of this.grid) {
+                        if (checked >= MAX_CHECKS) return true;
+                        if (val === GRID_VOID) continue;
+                        const comma = key.indexOf(',');
+                        const cx = parseInt(key.substring(0, comma));
+                        const cy = parseInt(key.substring(comma + 1));
+                        const id = val & 0xFFFF;
+                        const p = this.palette[id-1];
+                        if (p.c === color && (cx !== kPos?.c || cy !== kPos?.r)) {
+                            const moves = this.generatePotentialMoves(p, cx, cy);
+                            for (const m of moves) {
+                                if (this.simulateMoveAndCheckSafety(p, cx, cy, m.c, m.r)) return true;
+                            }
+                            checked++;
+                        }
+                    }
+                    // Перевірка Virtual (тільки ряди)
+                    if (this.virtualGen) {
+                        let armyH = Math.floor(this.boardSize * (this.virtualProps.percent / 100));
+                        if(armyH < 2) armyH = 2;
+                        const ranges = [{start: 0, end: armyH}, {start: this.boardSize - armyH, end: this.boardSize}];
+                        for(const rng of ranges) {
+                            for(let r=rng.start; r<rng.end && checked < MAX_CHECKS; r++) {
+                                for(let c=0; c<this.boardSize; c++) {
+                                    if(this.grid.has(this.getKey(c,r))) continue;
+                                    const p = this.getVirtualPiece(c,r);
+                                    if(p && p.c === color) {
+                                        const moves = this.generatePotentialMoves(p, c, r);
+                                        for(const m of moves) {
+                                            if (this.simulateMoveAndCheckSafety(p, c, r, m.c, m.r)) return true;
+                                        }
+                                        checked++;
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
-            }
-        }
-    }
 
-    return false; // Якщо дійшли сюди після 500 перевірок - це МАТ або ПАТ
-}
+                return false; // ХОДІВ НЕМАЄ -> МАТ або ПАТ
+            }
             _resolveDirs(d) { return typeof d === 'string' ? DIRS[d] : d; }
 
             generatePotentialMoves(piece, cx, cy, bounds = null) {
@@ -2658,14 +2677,27 @@ switchTurn() {
                 return isSafe;
             }
             tryPlacePiece(c, r) {
+                // 1. Перевірка меж дошки
                 if (c < 0 || c >= this.boardSize || r < 0 || r >= this.boardSize) return;
-                // Підтримка гумки
+                
+                // 2. Інструмент "Гумка" (має працювати на будь-якій клітинці)
                 if (this.curSymbol === '❌' || this.curSymbol === 'eraser') {
                     this.removePiece(c, r);
-                } else {
-                    // Ставимо фігуру
-                    this.setPiece(c, r, { s: this.curSymbol, c: this.curColor, hasMoved: false });
+                    return; 
                 }
+
+                // 3. БЛОКУВАННЯ ШАШОК НА БІЛИХ КЛІТИНКАХ
+                // Перевіряємо, чи поточна фігура (curSymbol) є в списку шашок
+                if (this.checkersSymbols.has(this.curSymbol)) {
+                    // isDarkSquare повертає true для темних клітинок.
+                    // Якщо клітинка НЕ темна (тобто біла) -> забороняємо ставити.
+                    if (!this.isDarkSquare(c, r)) {
+                        return; // Просто виходимо, нічого не ставимо
+                    }
+                }
+
+                // 4. Ставимо фігуру (якщо ми дійшли сюди, значить хід дозволено)
+                this.setPiece(c, r, { s: this.curSymbol, c: this.curColor, hasMoved: false });
             }
 
               calculateHighlights(piece, cx, cy) {
@@ -2805,6 +2837,118 @@ switchTurn() {
                     });
                 }
             }
+
+            // --- МЕТОДИ ДЛЯ ПЕРЕТВОРЕННЯ ПІШАКА (PROMOTION) ---
+
+            showPromotionDialog(color) {
+                const grid = document.getElementById('promotionGrid');
+                grid.innerHTML = ''; // Очищаємо попередні кнопки
+
+                let options = [];
+
+                // 1. ПЕРЕВІРКА РЕЖИМУ
+                if (this.virtualGen === 'fantasy') {
+                    // --- РЕЖИМ МІКС: ЗБИРАЄМО ВСІ ФІГУРИ ---
+                    PIECE_CATEGORIES.forEach(cat => {
+                        // Ігноруємо технічні категорії
+                        if (cat.name.includes("Інструменти") || 
+                            cat.name.includes("Класика (Чорні)") || 
+                            cat.name.includes("Шашки")) return;
+
+                        cat.items.forEach(item => {
+                            // Не можна перетворювати пішака на Королів або Пішаків
+                            if (['♔', '♚', '♙', '♟'].includes(item.s)) return;
+                            
+                            options.push(item.s);
+                        });
+                    });
+                } else {
+                    // --- РЕЖИМ КЛАСИКА / АРМІЯ / 960 ---
+                    options = ['♕', '♖', '♗', '♘'];
+                }
+                
+                // Мапа для класичних чорних фігур
+                const blackMap = { '♕':'♛', '♖':'♜', '♗':'♝', '♘':'♞' };
+
+                options.forEach(symbol => {
+                    // Якщо ходять чорні і це класична фігура -> беремо її чорний аналог.
+                    // Якщо це Mega-фігура (емодзі), залишаємо як є.
+                    let actualSymbol = symbol;
+                    if (color === 'b' && blackMap[symbol]) {
+                        actualSymbol = blackMap[symbol];
+                    }
+                    
+                    const btn = document.createElement('button');
+                    btn.className = 'promo-btn';
+                    btn.innerText = actualSymbol;
+                    
+                    // Якщо ходять чорні, фарбуємо текст у чорний (важливо для Mega-фігур, щоб вони виглядали "чорними")
+                    if (color === 'b') {
+                        btn.style.color = '#000'; 
+                        // Для класики це не вплине на SVG, але вплине на емодзі
+                    } else {
+                        // Для білих - залишаємо стандартний колір
+                        btn.style.color = 'inherit';
+                    }
+
+                    // При кліку викликаємо перетворення
+                    btn.onclick = () => this.promotePawn(actualSymbol);
+                    
+                    grid.appendChild(btn);
+                });
+
+                // Показуємо меню
+                document.getElementById('promotionOverlay').style.display = 'flex';
+            }
+
+            promotePawn(symbol) {
+                if (!this.promotionPending) return;
+
+                const { piece, startC, startR, endC, endR } = this.promotionPending;
+
+                // 1. ЗАПИС В ІСТОРІЮ (Щоб працював UNDO)
+                const startCoord = this.getCoordString(startC, startR);
+                const endCoord = this.getCoordString(endC, endR);
+                const capturedPiece = this.getPiece(endC, endR);
+                const isCap = !!capturedPiece;
+
+                const historyStep = {
+                    turn: this.currentTurn,
+                    prevKingPos: { w: this.kingPos.w ? {...this.kingPos.w} : null, b: this.kingPos.b ? {...this.kingPos.b} : null },
+                    multiJumpSource: null,
+                    changes: [],
+                    notation: { icon: symbol, start: startCoord, end: endCoord, cap: isCap, promo: true }
+                };
+
+                // Функція для запису стану клітинок до змін
+                const recordState = (col, row) => {
+                    const k = this.getKey(col, row);
+                    const v = this.grid.get(k);
+                    historyStep.changes.push({ key: k, value: v });
+                };
+
+                recordState(startC, startR); // Записуємо стартову клітинку
+                recordState(endC, endR);     // Записуємо кінцеву клітинку (де буде нова фігура)
+
+                this.moveHistory.push(historyStep);
+                this.updateLogUI();
+
+                // 2. ФІЗИЧНЕ ПЕРЕМІЩЕННЯ ТА ЗАМІНА
+                this.removePiece(startC, startR); // Видаляємо старого пішака
+                
+                // Створюємо нову фігуру з вибраним символом
+                const newPieceData = { s: symbol, c: piece.c, hasMoved: true, x: endC, y: endR };
+                this.setPiece(endC, endR, newPieceData);
+
+                // 3. ЗАВЕРШЕННЯ
+                document.getElementById('promotionOverlay').style.display = 'none';
+                this.promotionPending = null;
+                
+                // Передаємо хід
+                setTimeout(() => this.switchTurn(), 0);
+                this.updateUI();
+            }
+
             onMouseDown(e) {
                 if (this.gameOver || this.isGenerating || this.promotionPending) return;
                 
