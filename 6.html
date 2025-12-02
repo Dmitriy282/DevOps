@@ -1203,20 +1203,62 @@ const megaDefs = {
                 const key = `micro_${symbol}_${color}`;
                 if (this.lowResCache.has(key)) return this.lowResCache.get(key);
 
-                const size = 16;
+                // Розмір спрайту для "мікро" режиму. 
+                // 64px достатньо для чіткості, навіть коли фігура на екрані займає 5px.
+                const size = 64; 
                 const c = document.createElement('canvas');
                 c.width = size; c.height = size;
                 const ctx = c.getContext('2d');
 
-                ctx.font = `bold ${size}px sans-serif`;
-                ctx.textAlign = 'center'; 
-                ctx.textBaseline = 'middle';
-                
-                // Контрастні кольори для мікро-режиму
-                const isWhite = (color === 'w');
-                ctx.fillStyle = isWhite ? '#ffffff' : '#000000';
-                
-                ctx.fillText(symbol, size / 2, size / 2 + 1);
+                const svgKey = CLASSIC_MAP[symbol];
+
+                // Якщо це стандартна шахова фігура (є SVG)
+                if (svgKey && ((color === 'w' && svgKey.startsWith('w')) || (color === 'b' && svgKey.startsWith('b')))) {
+                    const svgContent = CHESS_SVGS[svgKey];
+                    const img = new Image();
+                    
+                    // Створюємо SVG blob з фіксованим розміром
+                    const svgData = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 45 45">${svgContent}</svg>`;
+                    const blob = new Blob([svgData], {type: 'image/svg+xml'});
+                    const url = URL.createObjectURL(blob);
+
+                    img.onload = () => {
+                        ctx.clearRect(0, 0, size, size);
+                        // Малюємо фігуру
+                        ctx.drawImage(img, 0, 0, size, size);
+                        
+                        // Додаємо легку обводку для видимості на величезних масштабах
+                        // (щоб білі фігури не зливалися з білим фоном, якщо такий буде)
+                        /* Розкоментуйте, якщо треба більше контрасту
+                        ctx.globalCompositeOperation = 'source-atop';
+                        ctx.strokeStyle = (color === 'w') ? '#000' : '#fff';
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(0,0,size,size); 
+                        */
+                        
+                        URL.revokeObjectURL(url);
+                    };
+                    img.src = url;
+                } else {
+                    // Якщо це спец-фігура без SVG (фентезі), малюємо емодзі, але крупніше
+                    const isWhite = (color === 'w');
+                    ctx.font = `bold ${size * 0.9}px Arial`; // Використовуємо Arial або системний шрифт
+                    ctx.textAlign = 'center'; 
+                    ctx.textBaseline = 'middle';
+                    
+                    // Контраст
+                    if (isWhite) {
+                        ctx.fillStyle = '#ffffff';
+                        ctx.shadowColor = '#000000';
+                        ctx.shadowBlur = 4;
+                    } else {
+                        ctx.fillStyle = '#000000';
+                        ctx.shadowColor = '#ffffff';
+                        ctx.shadowBlur = 4;
+                    }
+                    
+                    ctx.fillText(symbol, size / 2, size / 2 * 1.1);
+                }
 
                 this.lowResCache.set(key, c);
                 return c;
@@ -2844,51 +2886,23 @@ switchTurn() {
                 const grid = document.getElementById('promotionGrid');
                 grid.innerHTML = ''; // Очищаємо попередні кнопки
 
-                let options = [];
-
-                // 1. ПЕРЕВІРКА РЕЖИМУ
-                if (this.virtualGen === 'fantasy') {
-                    // --- РЕЖИМ МІКС: ЗБИРАЄМО ВСІ ФІГУРИ ---
-                    PIECE_CATEGORIES.forEach(cat => {
-                        // Ігноруємо технічні категорії
-                        if (cat.name.includes("Інструменти") || 
-                            cat.name.includes("Класика (Чорні)") || 
-                            cat.name.includes("Шашки")) return;
-
-                        cat.items.forEach(item => {
-                            // Не можна перетворювати пішака на Королів або Пішаків
-                            if (['♔', '♚', '♙', '♟'].includes(item.s)) return;
-                            
-                            options.push(item.s);
-                        });
-                    });
-                } else {
-                    // --- РЕЖИМ КЛАСИКА / АРМІЯ / 960 ---
-                    options = ['♕', '♖', '♗', '♘'];
-                }
+                // Список фігур, на які можна перетворити пішака
+                // (Ферзь, Тура, Слон, Кінь)
+                const options = ['♕', '♖', '♗', '♘'];
                 
-                // Мапа для класичних чорних фігур
+                // Мапа для чорних фігур (якщо ходять чорні)
                 const blackMap = { '♕':'♛', '♖':'♜', '♗':'♝', '♘':'♞' };
 
                 options.forEach(symbol => {
-                    // Якщо ходять чорні і це класична фігура -> беремо її чорний аналог.
-                    // Якщо це Mega-фігура (емодзі), залишаємо як є.
-                    let actualSymbol = symbol;
-                    if (color === 'b' && blackMap[symbol]) {
-                        actualSymbol = blackMap[symbol];
-                    }
+                    const actualSymbol = (color === 'w') ? symbol : blackMap[symbol];
                     
                     const btn = document.createElement('button');
                     btn.className = 'promo-btn';
                     btn.innerText = actualSymbol;
                     
-                    // Якщо ходять чорні, фарбуємо текст у чорний (важливо для Mega-фігур, щоб вони виглядали "чорними")
+                    // Стилізація для чорних фігур (щоб було видно на білому фоні)
                     if (color === 'b') {
                         btn.style.color = '#000'; 
-                        // Для класики це не вплине на SVG, але вплине на емодзі
-                    } else {
-                        // Для білих - залишаємо стандартний колір
-                        btn.style.color = 'inherit';
                     }
 
                     // При кліку викликаємо перетворення
@@ -2948,7 +2962,7 @@ switchTurn() {
                 setTimeout(() => this.switchTurn(), 0);
                 this.updateUI();
             }
-
+            
             onMouseDown(e) {
                 if (this.gameOver || this.isGenerating || this.promotionPending) return;
                 
@@ -3411,29 +3425,34 @@ switchTurn() {
                     }
                 }
 
-                if (this.highlightedMoves.length > 0 && cs > 2) {
+                if (this.highlightedMoves.length > 0) {
                     ctx.fillStyle = "rgba(46, 204, 113, 0.8)"; 
                     this.highlightedMoves.forEach(move => {
-                        if (move.type === 'point') {
-                            if (move.c >= startCol-1 && move.c <= endCol && move.r >= startRow-1 && move.r <= endRow) {
+                        // Малюємо тільки те, що влазить в екран (Viewport culling)
+                        if (move.c >= startCol-1 && move.c <= endCol && move.r >= startRow-1 && move.r <= endRow) {
+                            if (move.type === 'point') {
                                 const hx = bx + move.c * cs + cs/2;
                                 const hy = by + move.r * cs + cs/2;
                                 ctx.beginPath();
+                                
+                                // ВАЖЛИВО: Мінімальний розмір крапки = 3px
+                                let radius = Math.max(cs * 0.18, 3);
+                                if (move.capture) radius = Math.max(cs * 0.35, 4);
+
                                 if (move.capture) {
                                     ctx.fillStyle = "rgba(200, 50, 50, 0.7)";
-                                    ctx.arc(hx, hy, Math.max(cs * 0.35, 4), 0, Math.PI * 2); ctx.fill();
+                                    ctx.arc(hx, hy, radius, 0, Math.PI * 2); ctx.fill();
                                     ctx.fillStyle = "rgba(46, 204, 113, 0.8)"; 
                                 } else {
-                                    ctx.arc(hx, hy, Math.max(cs * 0.18, 3), 0, Math.PI * 2); ctx.fill();
+                                    ctx.arc(hx, hy, radius, 0, Math.PI * 2); ctx.fill();
                                 }
+                            } else if (move.type === 'ray') {
+                                let cx = bx + move.cx * cs + cs/2; let cy = by + move.cy * cs + cs/2;
+                                let ex = bx + (move.cx + move.dx * move.len) * cs + cs/2;
+                                let ey = by + (move.cy + move.dy * move.len) * cs + cs/2;
+                                ctx.beginPath(); ctx.strokeStyle = "rgba(46, 204, 113, 0.8)";
+                                ctx.lineWidth = Math.max(cs * 0.3, 2); ctx.moveTo(cx, cy); ctx.lineTo(ex, ey); ctx.stroke();
                             }
-                        } else if (move.type === 'ray') {
-                            // Rays drawing logic (shortened for brevity, same as before)
-                            let cx = bx + move.cx * cs + cs/2; let cy = by + move.cy * cs + cs/2;
-                            let ex = bx + (move.cx + move.dx * move.len) * cs + cs/2;
-                            let ey = by + (move.cy + move.dy * move.len) * cs + cs/2;
-                            ctx.beginPath(); ctx.strokeStyle = "rgba(46, 204, 113, 0.8)";
-                            ctx.lineWidth = Math.max(cs * 0.3, 2); ctx.moveTo(cx, cy); ctx.lineTo(ex, ey); ctx.stroke();
                         }
                     });
                 }
@@ -3449,6 +3468,8 @@ switchTurn() {
                 const totalVisible = (renderEndC - renderStartC) * (renderEndR - renderStartR);
                 let skip = 1;
                 if (totalVisible > 20000) skip = Math.ceil(Math.sqrt(totalVisible / 20000));
+
+                if (skip > 1 && skip % 2 === 0) skip++;
                 
                 const USE_MICRO = cs < 15; // Вмикаємо мікро-спрайти, якщо далеко
                 const drawSize = Math.max(cs * skip * 1.2, 2); // Збільшуємо фігуру, якщо пропускаємо клітинки
