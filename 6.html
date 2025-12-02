@@ -3490,7 +3490,7 @@ switchTurn() {
                 if (skip > 1 && skip % 2 === 0) skip++;
                 
                 const USE_MICRO = cs < 15; // Вмикаємо мікро-спрайти, якщо далеко
-                const drawSize = Math.max(cs * skip * 1.2, 2); // Збільшуємо фігуру, якщо пропускаємо клітинки
+                const drawSize = Math.max(cs * skip * 1.0, 2); // 1.0 = Розмір рівно по клітинці (як на рис 1) // Збільшуємо фігуру, якщо пропускаємо клітинки
 
                 for (let r = renderStartR; r < renderEndR; r += skip) {
                     for (let c = renderStartC; c < renderEndC; c += skip) {
