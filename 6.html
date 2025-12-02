@@ -1049,6 +1049,46 @@ const megaDefs = {
                 this.generateWorld('army', 25);
             }
 
+            async preRenderPatterns() {
+                // 1. Створюємо маленьку "плитку" (Texture), наприклад 4x4 клітинки
+                // Це буде наш зразок, яким ми замостимо весь світ
+                const tileSize = 4; 
+                const size = 256; // Роздільна здатність текстури
+                const s = size / tileSize; // Розмір однієї фігури на текстурі
+
+                const createTexture = (color, armyType) => {
+                    const c = document.createElement('canvas');
+                    c.width = size; c.height = size;
+                    const ctx = c.getContext('2d');
+
+                    // Малюємо фон (клітинки)
+                    for(let y=0; y<tileSize; y++) {
+                        for(let x=0; x<tileSize; x++) {
+                            // Логіка кольору клітинки (шахматка)
+                            const isDark = (x + y) % 2 !== 0;
+                            ctx.fillStyle = isDark ? this.colors.dark : this.colors.light;
+                            ctx.fillRect(x*s, y*s, s, s);
+                            
+                            // Малюємо фігуру
+                            // Беремо "середню" фігуру для текстури, щоб виглядало як армія
+                            let sym = (color === 'w') ? '♙' : '♟';
+                            if (Math.random() > 0.5) sym = (color === 'w') ? '♘' : '♞'; // Трохи різноманіття
+                            
+                            // Малюємо спрайт
+                            const sprite = this.getPieceSprite(sym, color);
+                            ctx.drawImage(sprite, x*s, y*s, s, s);
+                        }
+                    }
+                    return c;
+                };
+
+                // Створюємо патерни для Білих і Чорних
+                this.whitePatternCanvas = createTexture('w');
+                this.blackPatternCanvas = createTexture('b');
+                
+                // Створюємо об'єкти CanvasPattern для швидкого заливання
+                // Ми це зробимо безпосередньо в render, бо там потрібен контекст екрану
+            }
             async generateWorld(type, percent, mix = 0) {
                 const overlay = document.getElementById('loadingOverlay');
                 const progress = document.getElementById('loadingProgress');
@@ -1060,16 +1100,19 @@ const megaDefs = {
                 await new Promise(r => setTimeout(r, 20));
 
                 this.grid.clear();
-                this.moveHistory = [];
-                this.promotionPending = null;
-                this.kingsInCheck = { w: null, b: null };
-                this.customArrows = [];
-                document.getElementById('promotionOverlay').style.display = 'none';
-                document.getElementById('gameOverOverlay').style.display = 'none';
-
+                // ... (ваш код очищення) ...
+                
                 this.generationSeed = Math.random() * 100000;
                 this.virtualGen = type;
                 this.virtualProps = { percent, mix };
+
+                progress.style.width = '40%';
+                text.innerText = "Генерація текстур армій (Pre-rendering)...";
+                await new Promise(r => setTimeout(r, 20));
+
+                // --- ДОДАНО: ГЕНЕРУЄМО ТЕКСТУРИ ЗАЗДАЛЕГІДЬ ---
+                await this.preRenderPatterns(); 
+                // ----------------------------------------------
 
                 progress.style.width = '70%';
                 text.innerText = "Розгортання армій...";
@@ -3478,42 +3521,59 @@ switchTurn() {
                 // --- МАЛЮВАННЯ ФІГУР (З LOD - ЦЕ ГОЛОВНА ЗМІНА) ---
                 // Додаємо "Skip", щоб не лагало, і "Scale", щоб заповнити пустоту
                 
+                // --- МАЛЮВАННЯ ФІГУР (MAX SATURATION & DENSITY) ---
+                
                 const renderStartC = Math.max(0, startCol);
                 const renderEndC = Math.min(this.boardSize, endCol);
                 const renderStartR = Math.max(0, startRow);
                 const renderEndR = Math.min(this.boardSize, endRow);
 
+                // 1. ОПТИМІЗАЦІЯ (SKIP)
+                // Без цього браузер зависне. Ми малюємо ~15000 точок, але "розтягуємо" їх.
                 const totalVisible = (renderEndC - renderStartC) * (renderEndR - renderStartR);
                 let skip = 1;
-                if (totalVisible > 20000) skip = Math.ceil(Math.sqrt(totalVisible / 20000));
+                if (totalVisible > 15000) {
+                    skip = Math.ceil(Math.sqrt(totalVisible / 15000));
+                }
 
-                if (skip > 1 && skip % 2 === 0) skip++;
-                
-                const USE_MICRO = cs < 15; // Вмикаємо мікро-спрайти, якщо далеко
-                const drawSize = Math.max(cs * skip * 1.0, 2); // 1.0 = Розмір рівно по клітинці (як на рис 1) // Збільшуємо фігуру, якщо пропускаємо клітинки
+                // 2. РОЗМІР "НАСИЧЕНОСТІ"
+                // drawSize - це розмір однієї картинки на екрані.
+                // cs * skip - це точний математичний розмір блоку.
+                let baseSize = cs * skip;
+
+                // ГОЛОВНИЙ СЕКРЕТ: Ми завжди додаємо 1 піксель і округлюємо вгору.
+                // Це створює "нахльост". Фігури злипаються, прибираючи будь-які дірки та прозорість.
+                const finalSize = Math.ceil(baseSize) + 1;
 
                 for (let r = renderStartR; r < renderEndR; r += skip) {
                     for (let c = renderStartC; c < renderEndC; c += skip) {
-                        if (this.isDraggingPiece && this.draggedPiece && this.draggedPiece.startC === c && this.draggedPiece.startR === r) continue;
+                        
+                        if (this.isDraggingPiece && this.draggedPiece && 
+                            Math.abs(this.draggedPiece.startC - c) < skip && 
+                            Math.abs(this.draggedPiece.startR - r) < skip) continue;
+                        
                         const piece = this.getPiece(c, r);
                         if (!piece) continue;
                         
-                        const px = bx + c * cs;
-                        const py = by + r * cs;
-                        
-                        // Центрування збільшеної фігури
-                        const centerX = px + (cs * skip) / 2;
-                        const centerY = py + (cs * skip) / 2;
+                        // Координати (округлюємо до цілих пікселів для чіткості)
+                        const px = (bx + c * cs) | 0;
+                        const py = (by + r * cs) | 0;
 
+                        // 3. ВИБІР СПРАЙТА (ТІЛЬКИ ЧІТКІ ІКОНКИ)
                         let sprite;
-                        if (USE_MICRO) {
-                            sprite = this.getMicroSprite(piece.s, piece.c);
+                        
+                        // Коли ми дуже далеко (насичений режим), краще брати LowRes, 
+                        // він часто виглядає "жирніше" ніж Micro.
+                        if (baseSize < 30) {
+                            // Використовуємо більш жирний шрифт/спрайт для насиченості
+                            sprite = this.getLowResSprite(piece.s, piece.c); 
                         } else {
-                            // Ваша стара логіка для близької відстані
-                            sprite = (cs < 40) ? this.getLowResSprite(piece.s, piece.c) : this.getPieceSprite(piece.s, piece.c);
+                            sprite = this.getPieceSprite(piece.s, piece.c);
                         }
                         
-                        ctx.drawImage(sprite, (centerX - drawSize/2)|0, (centerY - drawSize/2)|0, drawSize|0, drawSize|0);
+                        // 4. МАЛЮВАННЯ З НАХЛЬОСТОМ
+                        // finalSize гарантує, що картинка перекриє сусідні пікселі
+                        ctx.drawImage(sprite, px, py, finalSize, finalSize);
                     }
                 }
 
