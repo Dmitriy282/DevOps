@@ -3518,37 +3518,72 @@ switchTurn() {
                 }
 
                 // 5. Інтерфейс (Стрілки/Текст) - як було
-                // 5. Інтерфейс (Стрілки/Текст)
+                // 5. Інтерфейс (Стрілки/Текст) - АДАПТИВНИЙ РЕНДЕР
                 if (cs > 5) this.drawCustomArrows(ctx, cs, bx, by);
-                if (cs > 25) { 
-                    const fontSize = Math.max(cs * 0.25, 12); 
-                    ctx.font = `bold ${fontSize}px Arial`;
+                
+                // Прибрали умову (cs > 25), тепер малюємо завжди, але розумно
+                { 
+                    const padding = 15;
                     
-                    const padding = 15; // Відступ
+                    // 1. Розрахунок кроку (Step)
+                    // Ми хочемо, щоб між написами було мінімум 50 пікселів відстані на екрані
+                    const minSpacing = 50; 
+                    let step = Math.ceil(minSpacing / cs);
+                    
+                    // Для краси округлюємо крок до зручних значень (1, 2, 5, 10, 50, 100...)
+                    if (step > 1) {
+                        const power = Math.floor(Math.log10(step));
+                        const base = Math.pow(10, power);
+                        const remainder = step / base;
+                        if (remainder > 5) step = 10 * base;
+                        else if (remainder > 2) step = 5 * base;
+                        else step = 2 * base;
+                    }
 
-                    // 1. РЯДИ (Цифри зліва)
+                    // Шрифт фіксуємо мінімум на 12px, щоб було читабельно навіть при віддаленні
+                    const fontSize = Math.max(cs * 0.4, 12); 
+                    ctx.font = `bold ${fontSize}px Arial`;
+                    ctx.fillStyle = '#000000'; // Чорний колір
+
+                    // --- МАЛЮВАННЯ РЯДІВ (Ліворуч) ---
                     ctx.textAlign = 'right'; 
                     ctx.textBaseline = 'middle'; 
-                    const labelX = bx - padding; 
+                    const labelX = bx - padding;
                     
-                    for(let r = renderStartR; r < renderEndR; r++) {
-                        const labelY = by + r*cs + cs/2;
-                        if(labelY > 0 && labelY < height) { 
-                            ctx.fillStyle = '#000000'; // <--- ЗМІНЕНО НА ЧОРНИЙ
-                            ctx.fillText((this.boardSize - r).toString(), labelX, labelY); 
+                    // Знаходимо перший видимий ряд, який кратний кроку (step)
+                    // Це супер-оптимізація: ми не перебираємо всі ряди, а стрибаємо відразу по потрібних
+                    let firstVisibleRow = Math.ceil(renderStartR / step) * step;
+                    
+                    for(let r = firstVisibleRow; r < renderEndR; r += step) {
+                        // Перевірка, чи не вилізли ми за межі реальної дошки
+                        if (r >= 0 && r <= this.boardSize) {
+                            const labelY = by + r*cs + cs/2;
+                            // Малюємо тільки якщо напис в межах екрану по висоті
+                            if(labelY > -20 && labelY < height + 20) { 
+                                // У шахах ряди нумеруються знизу вгору (BoardSize...1)
+                                // Якщо r = boardSize, це 0-й ряд (не існує в шахах), але для сітки може бути край
+                                const rankVal = this.boardSize - r;
+                                if (rankVal > 0) {
+                                    ctx.fillText(rankVal.toString(), labelX, labelY); 
+                                }
+                            }
                         }
                     }
 
-                    // 2. ФАЙЛИ (Літери знизу)
+                    // --- МАЛЮВАННЯ ФАЙЛІВ (Знизу) ---
                     ctx.textAlign = 'center'; 
                     ctx.textBaseline = 'top'; 
                     const labelYBottom = by + this.boardSize*cs + padding;
                     
-                    for(let c = renderStartC; c < renderEndC; c++) {
-                        const labelXPos = bx + c*cs + cs/2;
-                        if(labelXPos > 0 && labelXPos < width) { 
-                            ctx.fillStyle = '#000000'; // <--- ЗМІНЕНО НА ЧОРНИЙ
-                            ctx.fillText(this.getFileLabel(c), labelXPos, labelYBottom); 
+                    // Те саме для колонок: стрибаємо через step
+                    let firstVisibleCol = Math.ceil(renderStartC / step) * step;
+
+                    for(let c = firstVisibleCol; c < renderEndC; c += step) {
+                        if (c >= 0 && c < this.boardSize) {
+                            const labelXPos = bx + c*cs + cs/2;
+                            if(labelXPos > -20 && labelXPos < width + 20) { 
+                                ctx.fillText(this.getFileLabel(c), labelXPos, labelYBottom); 
+                            }
                         }
                     }
                 }
