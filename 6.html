@@ -3136,15 +3136,44 @@ switchTurn() {
                                     }
                                     
                                     if (isMoveSafe) {
-                                        // --- ЛОГІКА ДЛЯ ШАШОК (ВИПРАВЛЕНО) ---
+                                        // --- ПІДГОТОВКА ІСТОРІЇ (Робимо це ПЕРЕД змінами) ---
+                                        const startCoord = this.getCoordString(this.draggedPiece.startC, this.draggedPiece.startR);
+                                        const endCoord = this.getCoordString(c, r);
+                                        const isCap = !!this.getPiece(c,r) || (chosenMove.isCapture); 
+                                        
+                                        const historyStep = { 
+                                            turn: this.currentTurn, 
+                                            prevKingPos: { w: this.kingPos.w ? {...this.kingPos.w} : null, b: this.kingPos.b ? {...this.kingPos.b} : null }, 
+                                            multiJumpSource: null, 
+                                            changes: [], 
+                                            notation: { icon: this.draggedPiece.data.s, start: startCoord, end: endCoord, cap: isCap } 
+                                        };
+                                        
+                                        const recordState = (col, row) => { 
+                                            const k = this.getKey(col, row); 
+                                            const v = this.grid.get(k); 
+                                            historyStep.changes.push({ key: k, value: v }); 
+                                        };
+
+                                        // 1. ЗАПИСУЄМО СТАН ДО ЗМІН (Важливо!)
+                                        recordState(this.draggedPiece.startC, this.draggedPiece.startR); // Звідки пішли
+                                        recordState(c, r); // Куди прийшли
+                                        
+                                        // ВАЖЛИВО: Записуємо стан побитої шашки ПОКИ ВОНА ЩЕ Є на дошці
+                                        if (chosenMove.captured) {
+                                            recordState(chosenMove.captured.x, chosenMove.captured.y); 
+                                        }
+
+                                        // --- ТЕПЕР ВИКОНУЄМО ЗМІНИ ---
+
+                                        // 2. Видаляємо побиту шашку (тепер це безпечно)
                                         if (this.checkersSymbols.has(this.draggedPiece.data.s) && chosenMove.isCapture) {
-                                            // Видаляємо побиту шашку
                                             if (chosenMove.captured) {
                                                 this.removePiece(chosenMove.captured.x, chosenMove.captured.y);
                                             }
                                         }
 
-                                        // Перевірка пішака на перетворення (Шахи та Шашки)
+                                        // 3. Перевірка на дамку
                                         const isWhite = this.draggedPiece.data.c === 'w';
                                         const isPawn = this.draggedPiece.data.s === '♙' || this.draggedPiece.data.s === '♟';
                                         const isCheckerMan = this.draggedPiece.data.s === '⛀' || this.draggedPiece.data.s === '⛂';
@@ -3152,41 +3181,32 @@ switchTurn() {
                                         
                                         // Перетворення Пішака (Шахи)
                                         if (isPawn && r === promotionRow) {
+                                            // Якщо це перетворення - скасовуємо запис історії тут, бо вона запишеться в promotePawn
                                             this.promotionPending = { piece: this.draggedPiece.data, startC: this.draggedPiece.startC, startR: this.draggedPiece.startR, endC: c, endR: r };
                                             this.showPromotionDialog(this.draggedPiece.data.c);
                                             this.draggedPiece = null; this.isDraggingPiece = false; this.highlightedMoves = []; return;
                                         }
-                                        // Перетворення Дамки (Шашки) - автоматично
+                                        // Перетворення Дамки (Шашки)
                                         if (isCheckerMan && r === promotionRow) {
                                             this.draggedPiece.data.s = isWhite ? '⛁' : '⛃';
                                         }
-
-                                        // Запис ходу в історію
-                                        const startCoord = this.getCoordString(this.draggedPiece.startC, this.draggedPiece.startR);
-                                        const endCoord = this.getCoordString(c, r);
-                                        const isCap = !!this.getPiece(c,r) || (chosenMove.isCapture); // Врахування бою в шашках
                                         
-                                        const historyStep = { turn: this.currentTurn, prevKingPos: { w: this.kingPos.w ? {...this.kingPos.w} : null, b: this.kingPos.b ? {...this.kingPos.b} : null }, multiJumpSource: null, changes: [], notation: { icon: this.draggedPiece.data.s, start: startCoord, end: endCoord, cap: isCap } };
+                                        // 4. Фізичне переміщення фігури, якою ходили
+                                        this.removePiece(this.draggedPiece.startC, this.draggedPiece.startR);
+                                        this.draggedPiece.data.x = c; 
+                                        this.draggedPiece.data.y = r; 
+                                        this.draggedPiece.data.hasMoved = true;
+                                        this.setPiece(c, r, this.draggedPiece.data);
                                         
-                                        const recordState = (col, row) => { const k = this.getKey(col, row); const v = this.grid.get(k); historyStep.changes.push({ key: k, value: v }); };
-                                        recordState(this.draggedPiece.startC, this.draggedPiece.startR); recordState(c, r);
-                                        if (chosenMove.captured) recordState(chosenMove.captured.x, chosenMove.captured.y); // Запис видаленої шашки
-                                        
+                                        // 5. Зберігаємо історію
                                         this.moveHistory.push(historyStep);
                                         this.updateLogUI();
                                         
-                                        // Фізичне переміщення
-                                        this.removePiece(this.draggedPiece.startC, this.draggedPiece.startR);
-                                        this.draggedPiece.data.x = c; this.draggedPiece.data.y = r; this.draggedPiece.data.hasMoved = true;
-                                        this.setPiece(c, r, this.draggedPiece.data);
-                                        
                                         // --- ПЕРЕВІРКА МУЛЬТИ-БІЙ (ШАШКИ) ---
                                         if (this.checkersSymbols.has(this.draggedPiece.data.s) && chosenMove.isCapture) {
-                                            // Перевіряємо, чи є ще бій з НОВОЇ позиції
-                                            const followUpMoves = this.getCheckersMoves(this.draggedPiece.data, c, r, true); // true = onlyCaptures
+                                            const followUpMoves = this.getCheckersMoves(this.draggedPiece.data, c, r, true);
                                             if (followUpMoves.length > 0) {
-                                                this.multiJumpSource = { c: c, r: r }; // Фіксуємо джерело стрибків
-                                                // НЕ ПЕРЕДАЄМО ХІД, оновлюємо UI і виходимо
+                                                this.multiJumpSource = { c: c, r: r };
                                                 this.isDraggingPiece = false;
                                                 this.draggedPiece = null;
                                                 this.highlightedMoves = [];
@@ -3195,7 +3215,7 @@ switchTurn() {
                                             }
                                         }
 
-                                        this.multiJumpSource = null; // Скидаємо серію, якщо вона закінчилась
+                                        this.multiJumpSource = null;
                                         setTimeout(() => this.switchTurn(), 0);
                                     }
                                 }
