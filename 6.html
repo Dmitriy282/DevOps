@@ -2238,13 +2238,8 @@ switchTurn() {
                 setTimeout(() => {
                     if (this.gameOver) return;
 
-                    // --- ФІКС: ПЕРЕВІРКА НАЯВНОСТІ ФІГУР ---
-                    // Якщо у гравця, чий зараз хід, немає жодної фігури на дошці — 
-                    // це означає, що ми в режимі редактора/пісочниці.
-                    // Не оголошуємо ПАТ/МАТ, просто даємо грати далі.
-                    
+                    // --- ПЕРЕВІРКА НАЯВНОСТІ ФІГУР ---
                     let hasMaterial = false;
-                    // Швидке сканування (тільки для нормальних дошок, щоб не гальмувало на 1М)
                     if (this.boardSize <= 500) {
                         for (let r = 0; r < this.boardSize; r++) {
                             for (let c = 0; c < this.boardSize; c++) {
@@ -2257,19 +2252,23 @@ switchTurn() {
                             if (hasMaterial) break;
                         }
                     } else {
-                        hasMaterial = true; // На гігантських дошках ігноруємо цю перевірку
+                        hasMaterial = true; 
                     }
 
-                    // Якщо фігур немає і це НЕ офіційна гра в шашки — виходимо (не показуємо табличку)
                     if (!hasMaterial && this.virtualGen !== 'checkers') return;
-                    // ---------------------------------------
 
-                    // Перевірка на МАТ/ПАТ (Стандартна логіка)
+                    // --- ЛОГІКА КІНЦЯ ГРИ ---
+                    
+                    // 1. МАТ (Працює завжди)
                     if (this.kingsInCheck[this.currentTurn]) {
                         if (!this.hasAnyLegalMoves(this.currentTurn)) {
                             this.endGame("МАТ!");
                         }
-                    } else if (this.boardSize <= 100) {
+                    } 
+                    // 2. ПАТ (Нічия) - ТІЛЬКИ ДЛЯ МАЛИХ ДОШОК
+                    // Виправлення: Зменшили ліміт з 100 до 24.
+                    // На дошках 50x50 і 100x100 перевірка на пат вимикається, щоб не було багів.
+                    else if (this.boardSize <= 24) { 
                         if (!this.hasAnyLegalMoves(this.currentTurn)) {
                             if (this.virtualGen === 'checkers') this.endGame("ПЕРЕМОГА!");
                             else this.showStalemate();
@@ -2277,7 +2276,6 @@ switchTurn() {
                     }
                 }, 50);
             }
-
             isSquareAttacked(targetC, targetR, byOpponentOfColor) {
                 // 1. Швидка перевірка ворожого КОРОЛЯ
                 const enemyKingPos = this.findKing(byOpponentOfColor);
