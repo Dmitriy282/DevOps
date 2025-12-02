@@ -2183,7 +2183,7 @@ switchTurn() {
 
                 this.currentTurn = this.currentTurn === 'w' ? 'b' : 'w';
 
-                // Оновлюємо статус шаху
+                // Оновлюємо статус шаху (тільки для шахів)
                 if (this.virtualGen !== 'checkers') {
                     this.kingsInCheck.w = this.isInCheck('w') ? this.findKing('w') : null;
                     this.kingsInCheck.b = this.isInCheck('b') ? this.findKing('b') : null;
@@ -2193,19 +2193,41 @@ switchTurn() {
 
                 this.updateTurnIndicator();
 
-                // Виконуємо перевірку на МАТ із затримкою, щоб дати час оновитися даним
                 setTimeout(() => {
                     if (this.gameOver) return;
+
+                    // --- ФІКС: ПЕРЕВІРКА НАЯВНОСТІ ФІГУР ---
+                    // Якщо у гравця, чий зараз хід, немає жодної фігури на дошці — 
+                    // це означає, що ми в режимі редактора/пісочниці.
+                    // Не оголошуємо ПАТ/МАТ, просто даємо грати далі.
                     
-                    // 1. Якщо є ШАХ -> перевіряємо на МАТ
+                    let hasMaterial = false;
+                    // Швидке сканування (тільки для нормальних дошок, щоб не гальмувало на 1М)
+                    if (this.boardSize <= 500) {
+                        for (let r = 0; r < this.boardSize; r++) {
+                            for (let c = 0; c < this.boardSize; c++) {
+                                const p = this.getPiece(c, r);
+                                if (p && p.c === this.currentTurn) {
+                                    hasMaterial = true;
+                                    break;
+                                }
+                            }
+                            if (hasMaterial) break;
+                        }
+                    } else {
+                        hasMaterial = true; // На гігантських дошках ігноруємо цю перевірку
+                    }
+
+                    // Якщо фігур немає і це НЕ офіційна гра в шашки — виходимо (не показуємо табличку)
+                    if (!hasMaterial && this.virtualGen !== 'checkers') return;
+                    // ---------------------------------------
+
+                    // Перевірка на МАТ/ПАТ (Стандартна логіка)
                     if (this.kingsInCheck[this.currentTurn]) {
                         if (!this.hasAnyLegalMoves(this.currentTurn)) {
                             this.endGame("МАТ!");
-                            return;
                         }
-                    } 
-                    // 2. Якщо шаху немає -> перевіряємо на ПАТ (тільки для дошок <= 100)
-                    else if (this.boardSize <= 100) {
+                    } else if (this.boardSize <= 100) {
                         if (!this.hasAnyLegalMoves(this.currentTurn)) {
                             if (this.virtualGen === 'checkers') this.endGame("ПЕРЕМОГА!");
                             else this.showStalemate();
@@ -2655,14 +2677,27 @@ switchTurn() {
                 return isSafe;
             }
             tryPlacePiece(c, r) {
+                // 1. Перевірка меж дошки
                 if (c < 0 || c >= this.boardSize || r < 0 || r >= this.boardSize) return;
-                // Підтримка гумки
+                
+                // 2. Інструмент "Гумка" (має працювати на будь-якій клітинці)
                 if (this.curSymbol === '❌' || this.curSymbol === 'eraser') {
                     this.removePiece(c, r);
-                } else {
-                    // Ставимо фігуру
-                    this.setPiece(c, r, { s: this.curSymbol, c: this.curColor, hasMoved: false });
+                    return; 
                 }
+
+                // 3. БЛОКУВАННЯ ШАШОК НА БІЛИХ КЛІТИНКАХ
+                // Перевіряємо, чи поточна фігура (curSymbol) є в списку шашок
+                if (this.checkersSymbols.has(this.curSymbol)) {
+                    // isDarkSquare повертає true для темних клітинок.
+                    // Якщо клітинка НЕ темна (тобто біла) -> забороняємо ставити.
+                    if (!this.isDarkSquare(c, r)) {
+                        return; // Просто виходимо, нічого не ставимо
+                    }
+                }
+
+                // 4. Ставимо фігуру (якщо ми дійшли сюди, значить хід дозволено)
+                this.setPiece(c, r, { s: this.curSymbol, c: this.curColor, hasMoved: false });
             }
 
               calculateHighlights(piece, cx, cy) {
