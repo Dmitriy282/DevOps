@@ -3518,18 +3518,38 @@ switchTurn() {
                 }
 
                 // 5. Інтерфейс (Стрілки/Текст) - як було
+                // 5. Інтерфейс (Стрілки/Текст)
                 if (cs > 5) this.drawCustomArrows(ctx, cs, bx, by);
-                if (cs > 25) { /* (Ваш код тексту координат, без змін) */ 
-                    const fontSize = Math.max(cs * 0.25, 12); ctx.font = `bold ${fontSize}px Arial`;
-                    ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; const labelX = bx - 5;
+                if (cs > 25) { 
+                    const fontSize = Math.max(cs * 0.25, 12); 
+                    ctx.font = `bold ${fontSize}px Arial`;
+                    
+                    const padding = 15; // Відступ
+
+                    // 1. РЯДИ (Цифри зліва)
+                    ctx.textAlign = 'right'; 
+                    ctx.textBaseline = 'middle'; 
+                    const labelX = bx - padding; 
+                    
                     for(let r = renderStartR; r < renderEndR; r++) {
                         const labelY = by + r*cs + cs/2;
-                        if(labelY > 0 && labelY < height) { ctx.fillStyle = '#ccc'; ctx.fillText((this.boardSize - r).toString(), labelX, labelY); }
+                        if(labelY > 0 && labelY < height) { 
+                            ctx.fillStyle = '#000000'; // <--- ЗМІНЕНО НА ЧОРНИЙ
+                            ctx.fillText((this.boardSize - r).toString(), labelX, labelY); 
+                        }
                     }
-                    ctx.textAlign = 'center'; ctx.textBaseline = 'top'; const labelYBottom = by + this.boardSize*cs + 5;
+
+                    // 2. ФАЙЛИ (Літери знизу)
+                    ctx.textAlign = 'center'; 
+                    ctx.textBaseline = 'top'; 
+                    const labelYBottom = by + this.boardSize*cs + padding;
+                    
                     for(let c = renderStartC; c < renderEndC; c++) {
                         const labelXPos = bx + c*cs + cs/2;
-                        if(labelXPos > 0 && labelXPos < width) { ctx.fillStyle = '#ccc'; ctx.fillText(this.getFileLabel(c), labelXPos, labelYBottom); }
+                        if(labelXPos > 0 && labelXPos < width) { 
+                            ctx.fillStyle = '#000000'; // <--- ЗМІНЕНО НА ЧОРНИЙ
+                            ctx.fillText(this.getFileLabel(c), labelXPos, labelYBottom); 
+                        }
                     }
                 }
 
