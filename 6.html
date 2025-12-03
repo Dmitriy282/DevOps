@@ -2532,6 +2532,32 @@ switchTurn() {
             isInCheck(kingColor) { const kingPos = this.findKing(kingColor); if (!kingPos) return false; return this.isSquareAttacked(kingPos.c, kingPos.r, kingColor === 'w' ? 'b' : 'w'); }
             updateKingCheckStatus(color) { this.kingsInCheck[color] = this.isInCheck(color) ? this.findKing(color) : null; }
 
+            // --- НОВА ФУНКЦІЯ: ПЕРЕВІРКА НАЯВНОСТІ ОБОВ'ЯЗКОВОГО БОЮ ---
+            hasAnyCaptureMoves(color) {
+                // Якщо ми в процесі мульти-бою (подвійний удар), то бій точно є
+                if (this.multiJumpSource) return true;
+
+                for (const [key, val] of this.grid) {
+                    if (val === GRID_VOID) continue;
+                    
+                    // Розпарсимо координати і фігуру
+                    const comma = key.indexOf(',');
+                    const c = parseInt(key.substring(0, comma));
+                    const r = parseInt(key.substring(comma + 1));
+                    const id = val & 0xFFFF;
+                    const p = this.palette[id - 1];
+
+                    // Перевіряємо тільки шашки поточного гравця
+                    if (p && p.c === color && this.checkersSymbols.has(p.s)) {
+                        // Перевіряємо, чи може ця конкретна шашка когось з'їсти
+                        // (4-й параметр true означає "поверни тільки атаки")
+                        const caps = this.getCheckersMoves({s:p.s, c:p.c}, c, r, true);
+                        if (caps.length > 0) return true; // Знайшли хоча б один бій!
+                    }
+                }
+                return false;
+            }
+
            hasAnyLegalMoves(color) {
                 // Обмежувач для гігантських дошок, але на 8х8 перевірить все
                 const MAX_CHECKS = (this.boardSize < 20) ? 1000 : 500;
@@ -2794,9 +2820,16 @@ switchTurn() {
                 const type = piece.s;
                 const isWhite = piece.c === 'w';
 
-                // 1. --- ДОДАНО: ЛОГІКА ДЛЯ ШАШОК ---
+                // --- 1. ОНОВЛЕНА ЛОГІКА ДЛЯ ШАШОК (ОБОВ'ЯЗКОВИЙ БІЙ) ---
                 if (this.checkersSymbols.has(type)) {
-                    const moves = this.generatePotentialMoves(piece, cx, cy);
+                    let moves = this.generatePotentialMoves(piece, cx, cy);
+                    
+                    // Якщо правило включено і на дошці є хоч один бій для цього кольору
+                    if (this.hasAnyCaptureMoves(piece.c)) {
+                        // Фільтруємо: залишаємо ТІЛЬКИ ходи з атакою
+                        moves = moves.filter(m => m.isCapture);
+                    }
+
                     moves.forEach(m => {
                         this.highlightedMoves.push({ 
                             type: 'point', 
@@ -3130,10 +3163,8 @@ onMouseUp(e) {
                     else {
                         const existingIdx = this.highlightedSquares.findIndex(s => s.c === endC && s.r === endR);
                         if (existingIdx >= 0) {
-                            // Если уже красная - убираем
                             this.highlightedSquares.splice(existingIdx, 1);
                         } else {
-                            // Если нет - добавляем
                             this.highlightedSquares.push({ c: endC, r: endR });
                         }
                     }
@@ -3185,13 +3216,23 @@ onMouseUp(e) {
                             if (c !== this.draggedPiece.startC || r !== this.draggedPiece.startR) {
                                 
                                 // 1. Отримуємо всі легальні ходи для цієї фігури
-                                const potentialMoves = this.generatePotentialMoves(this.draggedPiece.data, this.draggedPiece.startC, this.draggedPiece.startR);
+                                let potentialMoves = this.generatePotentialMoves(this.draggedPiece.data, this.draggedPiece.startC, this.draggedPiece.startR);
+                                
+                                // --- НОВЕ ПРАВИЛО: ЯКЩО Є БІЙ, ІНШІ ХОДИ ЗАБОРОНЕНІ ---
+                                if (this.rulesEnabled && this.checkersSymbols.has(this.draggedPiece.data.s)) {
+                                    if (this.hasAnyCaptureMoves(this.currentTurn)) {
+                                        // Залишаємо тільки ходи-атаки
+                                        potentialMoves = potentialMoves.filter(m => m.isCapture);
+                                    }
+                                }
+                                // -------------------------------------------------------
+
                                 // 2. Шукаємо, чи є серед них той, який зробив гравець
                                 const chosenMove = potentialMoves.find(m => m.c === c && m.r === r);
 
                                 if (chosenMove) {
-                                    // Перевірка безпеки (для шахів)
                                     let isMoveSafe = true;
+                                    // Перевірка безпеки (для шахів)
                                     if (this.rulesEnabled && !this.checkersSymbols.has(this.draggedPiece.data.s)) {
                                         isMoveSafe = this.simulateMoveAndCheckSafety(this.draggedPiece.data, this.draggedPiece.startC, this.draggedPiece.startR, c, r);
                                     }
@@ -3216,25 +3257,23 @@ onMouseUp(e) {
                                             historyStep.changes.push({ key: k, value: v }); 
                                         };
 
-                                        // 1. ЗАПИСУЄМО СТАН ДО ЗМІН
                                         recordState(this.draggedPiece.startC, this.draggedPiece.startR);
                                         recordState(c, r);
                                         
-                                        // ВАЖЛИВО: Записуємо стан побитої шашки
                                         if (chosenMove.captured) {
                                             recordState(chosenMove.captured.x, chosenMove.captured.y); 
                                         }
 
-                                        // --- ТЕПЕР ВИКОНУЄМО ЗМІНИ ---
+                                        // --- ВИКОНАННЯ ХОДУ ---
 
-                                        // 2. Видаляємо побиту шашку (ОСЬ ЦЕ БУЛО ЗЛАМАНО/ПРОПУЩЕНО)
+                                        // 3. Видаляємо побиту шашку
                                         if (this.checkersSymbols.has(this.draggedPiece.data.s) && chosenMove.isCapture) {
                                             if (chosenMove.captured) {
                                                 this.removePiece(chosenMove.captured.x, chosenMove.captured.y);
                                             }
                                         }
 
-                                        // 3. Перевірка на дамку
+                                        // 4. Перевірка на дамку
                                         const isWhite = this.draggedPiece.data.c === 'w';
                                         const isPawn = this.draggedPiece.data.s === '♙' || this.draggedPiece.data.s === '♟';
                                         const isCheckerMan = this.draggedPiece.data.s === '⛀' || this.draggedPiece.data.s === '⛂';
@@ -3249,18 +3288,17 @@ onMouseUp(e) {
                                             this.draggedPiece.data.s = isWhite ? '⛁' : '⛃';
                                         }
                                         
-                                        // 4. Фізичне переміщення
+                                        // 5. Переміщення
                                         this.removePiece(this.draggedPiece.startC, this.draggedPiece.startR);
                                         this.draggedPiece.data.x = c; 
                                         this.draggedPiece.data.y = r; 
                                         this.draggedPiece.data.hasMoved = true;
                                         this.setPiece(c, r, this.draggedPiece.data);
                                         
-                                        // 5. Зберігаємо історію
                                         this.moveHistory.push(historyStep);
                                         this.updateLogUI();
                                         
-                                        // --- ПЕРЕВІРКА МУЛЬТИ-БІЙ (ШАШКИ) ---
+                                        // --- ПЕРЕВІРКА МУЛЬТИ-БІЙ ---
                                         if (this.checkersSymbols.has(this.draggedPiece.data.s) && chosenMove.isCapture) {
                                             const followUpMoves = this.getCheckersMoves(this.draggedPiece.data, c, r, true);
                                             if (followUpMoves.length > 0) {
@@ -3288,7 +3326,6 @@ onMouseUp(e) {
                 this.highlightedMoves = []; 
                 this.updateUI();
             }
-
 
             undoMove() {
                 if (this.moveHistory.length === 0) return;
