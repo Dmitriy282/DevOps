@@ -2148,6 +2148,61 @@ isPendingCapture(c, r) {
 
     return onlyCaptures ? [] : moves;
 }
+// --- ДОДАЙ ЦЕЙ МЕТОД, ЙОГО НЕ ВИСТАЧАЛО ---
+            undoMove() {
+                if (this.moveHistory.length === 0) return;
+
+                // 1. Беремо останній крок з історії
+                const lastStep = this.moveHistory.pop();
+
+                // 2. Відновлюємо сітку (фігури) до попереднього стану
+                // Ми проходимо по всіх змінах, записаних у цьому ході, і скасовуємо їх
+                if (lastStep.changes) {
+                    lastStep.changes.forEach(change => {
+                        if (change.value === undefined) {
+                            this.grid.delete(change.key);
+                        } else {
+                            this.grid.set(change.key, change.value);
+                        }
+                    });
+                }
+
+                // 3. Відновлюємо глобальні змінні
+                this.currentTurn = lastStep.turn; // Повертаємо чергу ходу
+                
+                // Відновлюємо позиції королів (якщо вони рухались)
+                if (lastStep.prevKingPos) {
+                    if (lastStep.prevKingPos.w) this.kingPos.w = lastStep.prevKingPos.w;
+                    if (lastStep.prevKingPos.b) this.kingPos.b = lastStep.prevKingPos.b;
+                }
+                
+                this.multiJumpSource = lastStep.multiJumpSource; // Якщо це була серія стрибків у шашках
+
+                // 4. Скидаємо стани виділення та кінця гри
+                this.gameOver = false;
+                this.highlightedMoves = [];
+                this.highlightedSquares = [];
+                this.pendingCaptures = [];
+                this.promotionPending = null;
+                
+                // Ховаємо вікна, якщо вони були відкриті
+                document.getElementById('promotionOverlay').style.display = 'none';
+                document.getElementById('gameOverOverlay').style.display = 'none';
+
+                // 5. Оновлюємо статус Шаху (перераховуємо для поточної ситуації)
+                if (this.virtualGen !== 'checkers') {
+                    this.kingsInCheck.w = this.isInCheck('w') ? this.findKing('w') : null;
+                    this.kingsInCheck.b = this.isInCheck('b') ? this.findKing('b') : null;
+                } else {
+                    this.kingsInCheck = { w: null, b: null };
+                }
+
+                // 6. Оновлюємо інтерфейс
+                this.updateUI();
+                this.updateTurnIndicator();
+                this.updateLogUI(); // Перемальовуємо таблицю ходів без останнього запису
+            }
+            // -------------------------------------------
 
             validateMove(piece, c1, r1, c2, r2, checkingAttack = false) {
                 if (!this.rulesEnabled) return true;
