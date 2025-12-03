@@ -555,6 +555,8 @@ const megaDefs = {
                 this.isPainting = false;
                 this.isGenerating = false;
 
+                // Внутри constructor() добавьте эту строку (например, после this.customArrows = []):
+                this.highlightedSquares = []; // Массив для красных клеток
                 this.customArrows = []; // Масив стрілок
                 this.rmbStart = null;   // Точка початку малювання
                 this.previewArrow = null; // <--- ДОДАТИ ЦЕЙ РЯДОК (Тимчасова стрілка)
@@ -1582,6 +1584,8 @@ getVirtualPiece(c, r) {
 
             resetGame() {
                 this.customArrows = [];
+                // Внутри resetGame() добавьте очистку:
+                this.highlightedSquares = [];
 
                 this.grid.clear();
                 this.moveHistory = [];
@@ -3004,56 +3008,57 @@ switchTurn() {
                 this.updateUI();
             }
             
-            onMouseDown(e) {
-                if (this.gameOver || this.isGenerating || this.promotionPending) return;
-                
-                this.clickStart = { x: e.clientX, y: e.clientY };
-                const w = this.screenToWorld(e.clientX, e.clientY);
-                const c = Math.floor(w.x / this.cellSize); 
-                const r = Math.floor(w.y / this.cellSize);
+            // Найдите метод onMouseDown(e) и измените блок "if (e.button === 0)":
 
-                // --- ЛІВА КНОПКА (ЛКМ): Гра або Переміщення Камери ---
-                if (e.button === 0) {
-                    this.customArrows = []; // Клік лівою стирає стрілки (як на Lichess)
+// Найдите метод onMouseDown(e) и измените блок "if (e.button === 0)":
 
-                    // 1. Інструмент ГУМКА (видалення миттєве)
-                    if (!this.turnModeEnabled && (this.curSymbol === '❌' || this.curSymbol === 'delete')) {
-                        this.tryPlacePiece(c, r); 
-                        return; 
-                    }
-                    
-                    // 2. Перевіряємо, чи є тут фігура, яку можна взяти
-                    const piece = this.getPiece(c, r);
-                    let canGrabPiece = false;
-                    if (piece) {
-                        if (!this.turnModeEnabled || piece.c === this.currentTurn) {
-                            canGrabPiece = true;
-                        }
-                    }
+onMouseDown(e) {
+    if (this.gameOver || this.isGenerating || this.promotionPending) return;
+    
+    this.clickStart = { x: e.clientX, y: e.clientY };
+    const w = this.screenToWorld(e.clientX, e.clientY);
+    const c = Math.floor(w.x / this.cellSize); 
+    const r = Math.floor(w.y / this.cellSize);
 
-                    if (canGrabPiece) {
-                        // Якщо попали по фігурі -> ТЯГНЕМО ФІГУРУ
-                        this.isDraggingPiece = true;
-                        this.draggedPiece = { data: piece, startC: c, startR: r };
-                        this.calculateHighlights(piece, c, r);
-                    } else {
-                        // Якщо попали в пусте місце -> ТЯГНЕМО ДОШКУ (КАМЕРУ)
-                        this.isDragging = true; 
-                        this.lastMouse = { x: e.clientX, y: e.clientY }; 
-                        this.canvas.style.cursor = "grabbing";
-                    }
-                } 
-                
-                // --- ПРАВА КНОПКА (ПКМ): Тільки малювання стрілок ---
-                else if (e.button === 2) {
-                    // Запам'ятовуємо старт стрілки (Shift більше не потрібен)
-                    if (c >= 0 && c < this.boardSize && r >= 0 && r < this.boardSize) {
-                        this.rmbStart = { c, r };
-                    } else {
-                        this.rmbStart = null;
-                    }
-                }
+    // --- ЛІВА КНОПКА (ЛКМ) ---
+    if (e.button === 0) {
+        this.customArrows = [];       // Очищаем стрелки
+        this.highlightedSquares = []; // <--- ДОБАВЛЕНО: Очищаем красные клетки
+        
+        // ... (дальше ваш старый код: гумка, перетягивание фигур и т.д.)
+        if (!this.turnModeEnabled && (this.curSymbol === '❌' || this.curSymbol === 'delete')) {
+            this.tryPlacePiece(c, r); 
+            return; 
+        }
+        
+        const piece = this.getPiece(c, r);
+        let canGrabPiece = false;
+        if (piece) {
+            if (!this.turnModeEnabled || piece.c === this.currentTurn) {
+                canGrabPiece = true;
             }
+        }
+
+        if (canGrabPiece) {
+            this.isDraggingPiece = true;
+            this.draggedPiece = { data: piece, startC: c, startR: r };
+            this.calculateHighlights(piece, c, r);
+        } else {
+            this.isDragging = true; 
+            this.lastMouse = { x: e.clientX, y: e.clientY }; 
+            this.canvas.style.cursor = "grabbing";
+        }
+    } 
+    
+    // --- ПРАВА КНОПКА (ПКМ) ---
+    else if (e.button === 2) {
+        if (c >= 0 && c < this.boardSize && r >= 0 && r < this.boardSize) {
+            this.rmbStart = { c, r };
+        } else {
+            this.rmbStart = null;
+        }
+    }
+}
            onMouseMove(e) {
                 this.mouse.x = e.clientX; this.mouse.y = e.clientY;
                 if (this.promotionPending) return;
@@ -3103,8 +3108,10 @@ switchTurn() {
             }
 
 
-                       onMouseUp(e) {
-                // --- ПРАВА КНОПКА (Завершення стрілки) ---
+                      // Полностью замените метод onMouseUp(e) на этот:
+
+onMouseUp(e) {
+                // --- ПРАВА КНОПКА (Завершення стрілки або Підсвітка) ---
                 if (e.button === 2 && this.rmbStart) {
                     const w = this.screenToWorld(e.clientX, e.clientY);
                     let rawC = Math.floor(w.x / this.cellSize); 
@@ -3112,14 +3119,27 @@ switchTurn() {
                     const endC = Math.max(0, Math.min(this.boardSize - 1, rawC));
                     const endR = Math.max(0, Math.min(this.boardSize - 1, rawR));
 
+                    // Если начало и конец отличаются -> РИСУЕМ СТРЕЛКУ (Старая логика)
                     if (this.rmbStart.c !== endC || this.rmbStart.r !== endR) {
                         const newArrow = { sx: this.rmbStart.c, sy: this.rmbStart.r, ex: endC, ey: endR };
                         const idx = this.customArrows.findIndex(a => a.sx === newArrow.sx && a.sy === newArrow.sy && a.ex === newArrow.ex && a.ey === newArrow.ey);
                         if (idx >= 0) this.customArrows.splice(idx, 1); 
                         else this.customArrows.push(newArrow);
+                    } 
+                    // Если клик на ту же клетку -> КРАСНАЯ ПОДСВЕТКА (Новая логика)
+                    else {
+                        const existingIdx = this.highlightedSquares.findIndex(s => s.c === endC && s.r === endR);
+                        if (existingIdx >= 0) {
+                            // Если уже красная - убираем
+                            this.highlightedSquares.splice(existingIdx, 1);
+                        } else {
+                            // Если нет - добавляем
+                            this.highlightedSquares.push({ c: endC, r: endR });
+                        }
                     }
+
                     this.rmbStart = null; 
-                    this.previewArrow = null; // <--- ДОДАНО: Очищуємо прев'ю
+                    this.previewArrow = null; 
                     this.updateUI(); 
                     return;
                 }
@@ -3166,7 +3186,7 @@ switchTurn() {
                                 
                                 // 1. Отримуємо всі легальні ходи для цієї фігури
                                 const potentialMoves = this.generatePotentialMoves(this.draggedPiece.data, this.draggedPiece.startC, this.draggedPiece.startR);
-                                // 2. Шукаємо, чи є серед них той, який зробив гравець (по координатах)
+                                // 2. Шукаємо, чи є серед них той, який зробив гравець
                                 const chosenMove = potentialMoves.find(m => m.c === c && m.r === r);
 
                                 if (chosenMove) {
@@ -3177,7 +3197,7 @@ switchTurn() {
                                     }
                                     
                                     if (isMoveSafe) {
-                                        // --- ПІДГОТОВКА ІСТОРІЇ (Робимо це ПЕРЕД змінами) ---
+                                        // --- ПІДГОТОВКА ІСТОРІЇ ---
                                         const startCoord = this.getCoordString(this.draggedPiece.startC, this.draggedPiece.startR);
                                         const endCoord = this.getCoordString(c, r);
                                         const isCap = !!this.getPiece(c,r) || (chosenMove.isCapture); 
@@ -3196,18 +3216,18 @@ switchTurn() {
                                             historyStep.changes.push({ key: k, value: v }); 
                                         };
 
-                                        // 1. ЗАПИСУЄМО СТАН ДО ЗМІН (Важливо!)
-                                        recordState(this.draggedPiece.startC, this.draggedPiece.startR); // Звідки пішли
-                                        recordState(c, r); // Куди прийшли
+                                        // 1. ЗАПИСУЄМО СТАН ДО ЗМІН
+                                        recordState(this.draggedPiece.startC, this.draggedPiece.startR);
+                                        recordState(c, r);
                                         
-                                        // ВАЖЛИВО: Записуємо стан побитої шашки ПОКИ ВОНА ЩЕ Є на дошці
+                                        // ВАЖЛИВО: Записуємо стан побитої шашки
                                         if (chosenMove.captured) {
                                             recordState(chosenMove.captured.x, chosenMove.captured.y); 
                                         }
 
                                         // --- ТЕПЕР ВИКОНУЄМО ЗМІНИ ---
 
-                                        // 2. Видаляємо побиту шашку (тепер це безпечно)
+                                        // 2. Видаляємо побиту шашку (ОСЬ ЦЕ БУЛО ЗЛАМАНО/ПРОПУЩЕНО)
                                         if (this.checkersSymbols.has(this.draggedPiece.data.s) && chosenMove.isCapture) {
                                             if (chosenMove.captured) {
                                                 this.removePiece(chosenMove.captured.x, chosenMove.captured.y);
@@ -3220,19 +3240,16 @@ switchTurn() {
                                         const isCheckerMan = this.draggedPiece.data.s === '⛀' || this.draggedPiece.data.s === '⛂';
                                         const promotionRow = isWhite ? 0 : this.boardSize - 1;
                                         
-                                        // Перетворення Пішака (Шахи)
                                         if (isPawn && r === promotionRow) {
-                                            // Якщо це перетворення - скасовуємо запис історії тут, бо вона запишеться в promotePawn
                                             this.promotionPending = { piece: this.draggedPiece.data, startC: this.draggedPiece.startC, startR: this.draggedPiece.startR, endC: c, endR: r };
                                             this.showPromotionDialog(this.draggedPiece.data.c);
                                             this.draggedPiece = null; this.isDraggingPiece = false; this.highlightedMoves = []; return;
                                         }
-                                        // Перетворення Дамки (Шашки)
                                         if (isCheckerMan && r === promotionRow) {
                                             this.draggedPiece.data.s = isWhite ? '⛁' : '⛃';
                                         }
                                         
-                                        // 4. Фізичне переміщення фігури, якою ходили
+                                        // 4. Фізичне переміщення
                                         this.removePiece(this.draggedPiece.startC, this.draggedPiece.startR);
                                         this.draggedPiece.data.x = c; 
                                         this.draggedPiece.data.y = r; 
@@ -3517,6 +3534,26 @@ switchTurn() {
                         }
                     });
                 }
+
+                // В методе render():
+
+// ... (после отрисовки доски и рамки) ...
+
+// --- НОВА ФУНКЦІЯ: ЧЕРВОНА ПІДСВІТКА (ПКМ) ---
+if (this.highlightedSquares.length > 0) {
+    // Chess.com цвет (красный полупрозрачный)
+    ctx.fillStyle = "rgba(235, 97, 80, 0.6)"; 
+    
+    this.highlightedSquares.forEach(sq => {
+        // Рисуем только если клетка в пределах экрана (оптимизация)
+        if (sq.c >= startCol && sq.c < endCol && sq.r >= startRow && sq.r < endRow) {
+             ctx.fillRect(bx + sq.c * cs, by + sq.r * cs, cs, cs);
+        }
+    });
+}
+
+// ... (далее идет ваш код: --- ПІДСВІТКА (Без змін...) ---)
+// if (this.rulesEnabled && cs > 2) { ...kingsInCheck... }
 
                 // --- МАЛЮВАННЯ ФІГУР (З LOD - ЦЕ ГОЛОВНА ЗМІНА) ---
                 // Додаємо "Skip", щоб не лагало, і "Scale", щоб заповнити пустоту
