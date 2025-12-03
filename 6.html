@@ -2632,7 +2632,84 @@ switchTurn() {
             }
 
 
-            isInCheck(kingColor) { const kingPos = this.findKing(kingColor); if (!kingPos) return false; return this.isSquareAttacked(kingPos.c, kingPos.r, kingColor === 'w' ? 'b' : 'w'); }
+            isInCheck(kingColor) {
+                const opponent = (kingColor === 'w') ? 'b' : 'w';
+                const kingSymbol = (kingColor === 'w') ? '♔' : '♚';
+                
+                // 1. ПЕРЕВІРКА ГРІДУ (Всі фігури, що ходили або поставлені вручну)
+                // Це знайде королів будь-де, навіть якщо вони втекли в центр дошки
+                for (const [key, val] of this.grid) {
+                    if (val === GRID_VOID) continue;
+                    const id = val & 0xFFFF;
+                    const p = this.palette[id - 1];
+
+                    if (p && p.c === kingColor && p.s === kingSymbol) {
+                        const coord = key.split(',');
+                        const c = parseInt(coord[0]);
+                        const r = parseInt(coord[1]);
+
+                        if (this.isSquareAttacked(c, r, opponent)) {
+                            if (kingColor === 'w') this.kingPos.w = {c, r};
+                            else this.kingPos.b = {c, r};
+                            return true;
+                        }
+                    }
+                }
+
+                // 2. ПЕРЕВІРКА ВІРТУАЛЬНИХ КОРОЛІВ (Зона Армії)
+                if (this.virtualGen === 'army') {
+                    // Визначаємо висоту армії (скільки рядів зайнято)
+                    let armyRows = 2; // Мінімум
+                    if (this.virtualProps && this.virtualProps.percent) {
+                        armyRows = Math.floor(this.boardSize * (this.virtualProps.percent / 100));
+                    }
+                    
+                    // Визначаємо діапазон рядів для перевірки
+                    let startR, endR;
+                    if (kingColor === 'b') {
+                        // Чорні зверху (від 0 до armyRows)
+                        startR = 0; 
+                        endR = armyRows;
+                    } else {
+                        // Білі знизу (від boardSize - armyRows до boardSize)
+                        startR = this.boardSize - armyRows;
+                        endR = this.boardSize;
+                    }
+
+                    // Скануємо ВСЮ зону армії
+                    // (Крок 1 гарантує, що ми не пропустимо жодного короля)
+                    const step = (this.boardSize > 2000) ? 4 : 1; // Оптимізація тільки для гігантських дошок
+
+                    for (let r = startR; r < endR; r++) {
+                        for (let c = 0; c < this.boardSize; c += step) {
+                            
+                            // Пропускаємо, якщо клітинка змінена (вже перевірена в блоці 1)
+                            if (this.grid.has(this.getKey(c, r))) continue;
+
+                            const p = this.getVirtualPiece(c, r);
+                            
+                            // Якщо це віртуальний Король
+                            if (p && p.c === kingColor && p.s === kingSymbol) {
+                                if (this.isSquareAttacked(c, r, opponent)) {
+                                    // Знайшли! Оновлюємо таргет для червоної підсвітки
+                                    if (kingColor === 'w') this.kingPos.w = {c, r};
+                                    else this.kingPos.b = {c, r};
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                } 
+                // 3. ІНШІ РЕЖИМИ (Класика/960 - перевіряємо лише головного короля)
+                else if (this.virtualGen !== 'checkers') {
+                     const k = this.findKing(kingColor);
+                     if (k && !this.grid.has(this.getKey(k.c, k.r))) {
+                         if (this.isSquareAttacked(k.c, k.r, opponent)) return true;
+                     }
+                }
+
+                return false;
+            }
             updateKingCheckStatus(color) { this.kingsInCheck[color] = this.isInCheck(color) ? this.findKing(color) : null; }
 
             // --- НОВА ФУНКЦІЯ: ПЕРЕВІРКА НАЯВНОСТІ ОБОВ'ЯЗКОВОГО БОЮ ---
