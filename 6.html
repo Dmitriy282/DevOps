@@ -539,7 +539,7 @@ const megaDefs = {
                 
                 // Додаємо targetCamera для стабілізації
                 this.targetCamera = { x: 0, y: 0, zoom: 1 }; 
-                
+                this.pendingCaptures = [];
                 this.lerpFactor = 0.1;
                 this.minZoom = 0.000001;
                 this.maxZoom = 5.0;
@@ -1586,7 +1586,7 @@ getVirtualPiece(c, r) {
                 this.customArrows = [];
                 // Внутри resetGame() добавьте очистку:
                 this.highlightedSquares = [];
-
+                this.pendingCaptures = [];
                 this.grid.clear();
                 this.moveHistory = [];
                 this.pieceCount = 0;
@@ -1969,170 +1969,179 @@ getVirtualPiece(c, r) {
             
             // --- НОВИЙ МЕТОД: РЕКУРСИВНИЙ ПІДРАХУНОК ДОВЖИНИ БОЮ ---
             // Рахує, скільки всього шашок можна забрати, стартуючи з (cx, cy)
-            _measureCaptureChain(piece, cx, cy, ignoredPieces) {
-                const isKing = ['⛁', '⛃'].includes(piece.s);
-                const dirs = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
-                let maxChain = 0;
+_measureCaptureChain(piece, cx, cy, ignoredPieces) {
+    const isKing = ['⛁', '⛃'].includes(piece.s);
+    const dirs = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
+    let maxChain = 0;
 
-                for (const d of dirs) {
-                    // --- ЛОГІКА ДАМКИ ---
-                    if (isKing) {
-                        let foundEnemy = null;
-                        // Скануємо діагональ
-                        for (let dist = 1; dist < this.boardSize; dist++) {
-                            const tx = cx + d[0] * dist;
-                            const ty = cy + d[1] * dist;
+    for (const d of dirs) {
+        // --- ЛОГІКА ДАМКИ ---
+        if (isKing) {
+            let foundEnemy = null;
+            // Скануємо діагональ
+            for (let dist = 1; dist < this.boardSize; dist++) {
+                const tx = cx + d[0] * dist;
+                const ty = cy + d[1] * dist;
 
-                            // Вихід за межі
-                            if (tx < 0 || tx >= this.boardSize || ty < 0 || ty >= this.boardSize) break;
+                // Вихід за межі
+                if (tx < 0 || tx >= this.boardSize || ty < 0 || ty >= this.boardSize) break;
 
-                            // Перевірка "ігнорованих" (убитих у цьому ланцюжку)
-                            let isIgnored = false;
-                            for (const ip of ignoredPieces) {
-                                if (ip.x === tx && ip.y === ty) { isIgnored = true; break; }
-                            }
-                            if (isIgnored) continue; // Пролітаємо крізь убиту шашку як через пусту
-
-                            const target = this.getPiece(tx, ty);
-
-                            if (!foundEnemy) {
-                                // Шукаємо ворога
-                                if (target) {
-                                    if (target.c !== piece.c) {
-                                        foundEnemy = { x: tx, y: ty };
-                                    } else {
-                                        break; // Вперлися в свого
-                                    }
-                                }
-                            } else {
-                                // Ворога вже знайдено, шукаємо вільні клітинки за ним
-                                if (target) {
-                                    break; // Вперлися в фігуру за ворогом
-                                } else {
-                                    // Знайшли точку приземлення!
-                                    // Рекурсивно перевіряємо, що можна бити далі з цієї точки
-                                    const newIgnored = [...ignoredPieces, foundEnemy];
-                                    const depth = 1 + this._measureCaptureChain(piece, tx, ty, newIgnored);
-                                    if (depth > maxChain) maxChain = depth;
-                                }
-                            }
-                        }
-                    } 
-                    // --- ЛОГІКА ПРОСТОЇ ШАШКИ ---
-                    else {
-                        const enemyX = cx + d[0];
-                        const enemyY = cy + d[1];
-                        const landX = cx + d[0] * 2;
-                        const landY = cy + d[1] * 2;
-
-                        // Чи не ігноруємо ми цього ворога?
-                        let isIgnored = false;
-                        for (const ip of ignoredPieces) { if (ip.x === enemyX && ip.y === enemyY) isIgnored = true; }
-
-                        if (!isIgnored && landX >= 0 && landX < this.boardSize && landY >= 0 && landY < this.boardSize) {
-                            const enemy = this.getPiece(enemyX, enemyY);
-                            const landing = this.getPiece(landX, landY);
-
-                            if (enemy && enemy.c !== piece.c && !landing) {
-                                // Бій можливий
-                                const newIgnored = [...ignoredPieces, {x: enemyX, y: enemyY}];
-                                const depth = 1 + this._measureCaptureChain(piece, landX, landY, newIgnored);
-                                if (depth > maxChain) maxChain = depth;
-                            }
-                        }
+                // 1. ПЕРЕВІРКА НА "ПРИВИДІВ" (Турецький удар)
+                // Якщо ми натрапили на шашку, яку вже побили в цьому ланцюжку (ignoredPieces)
+                // АБО яку побили на попередніх етапах мульти-ходу (pendingCaptures)
+                let isDeadObstacle = this.isPendingCapture(tx, ty);
+                if (!isDeadObstacle) {
+                    for (const ip of ignoredPieces) {
+                        if (ip.x === tx && ip.y === ty) { isDeadObstacle = true; break; }
                     }
                 }
-                return maxChain;
+
+                if (isDeadObstacle) {
+                    // ВАЖЛИВО: Побита шашка стає СТІНОЮ. Крізь неї не можна пройти.
+                    break; 
+                }
+
+                const target = this.getPiece(tx, ty);
+
+                if (!foundEnemy) {
+                    // Шукаємо ворога
+                    if (target) {
+                        if (target.c !== piece.c) {
+                            foundEnemy = { x: tx, y: ty };
+                        } else {
+                            break; // Вперлися в свого
+                        }
+                    }
+                } else {
+                    // Ворога вже знайдено, шукаємо вільні клітинки за ним
+                    if (target) {
+                        break; // Вперлися в фігуру за ворогом
+                    } else {
+                        // Знайшли точку приземлення!
+                        const newIgnored = [...ignoredPieces, foundEnemy];
+                        const depth = 1 + this._measureCaptureChain(piece, tx, ty, newIgnored);
+                        if (depth > maxChain) maxChain = depth;
+                    }
+                }
             }
+        } 
+        // --- ЛОГІКА ПРОСТОЇ ШАШКИ ---
+        else {
+            const enemyX = cx + d[0];
+            const enemyY = cy + d[1];
+            const landX = cx + d[0] * 2;
+            const landY = cy + d[1] * 2;
+
+            // Чи не ігноруємо ми цього ворога (чи не є він вже трупом)?
+            let isIgnored = this.isPendingCapture(enemyX, enemyY);
+            if (!isIgnored) {
+                 for (const ip of ignoredPieces) { if (ip.x === enemyX && ip.y === enemyY) isIgnored = true; }
+            }
+
+            if (!isIgnored && landX >= 0 && landX < this.boardSize && landY >= 0 && landY < this.boardSize) {
+                const enemy = this.getPiece(enemyX, enemyY);
+                const landing = this.getPiece(landX, landY);
+
+                if (enemy && enemy.c !== piece.c && !landing) {
+                    const newIgnored = [...ignoredPieces, {x: enemyX, y: enemyY}];
+                    const depth = 1 + this._measureCaptureChain(piece, landX, landY, newIgnored);
+                    if (depth > maxChain) maxChain = depth;
+                }
+            }
+        }
+    }
+    return maxChain;
+}
+
+isPendingCapture(c, r) {
+    return this.pendingCaptures.some(p => p.x === c && p.y === r);
+}
 
             // --- ОНОВЛЕНИЙ МЕТОД ОТРИМАННЯ ХОДІВ ---
             getCheckersMoves(piece, cx, cy, onlyCaptures = false) {
-                const moves = [];
-                const possibleCaptures = [];
-                const isKing = ['⛁', '⛃'].includes(piece.s);
-                const isWhite = piece.c === 'w';
-                const dirs = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
+    const moves = [];
+    const possibleCaptures = [];
+    const isKing = ['⛁', '⛃'].includes(piece.s);
+    const isWhite = piece.c === 'w';
+    const dirs = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
 
-                // 1. Збираємо всі "сирі" ходи (тихі та бойові)
-                for (const d of dirs) {
-                    if (!isKing) {
-                        // Пішак
-                        const enemyX = cx + d[0];
-                        const enemyY = cy + d[1];
-                        const landX = cx + d[0] * 2;
-                        const landY = cy + d[1] * 2;
+    for (const d of dirs) {
+        if (!isKing) {
+            // Пішак
+            const enemyX = cx + d[0];
+            const enemyY = cy + d[1];
+            const landX = cx + d[0] * 2;
+            const landY = cy + d[1] * 2;
 
-                        // Перевірка бою
-                        if (landX >= 0 && landX < this.boardSize && landY >= 0 && landY < this.boardSize) {
-                            const enemy = this.getPiece(enemyX, enemyY);
-                            const landing = this.getPiece(landX, landY);
-                            if (enemy && enemy.c !== piece.c && !landing) {
-                                possibleCaptures.push({ 
-                                    c: landX, r: landY, 
-                                    isCapture: true, 
-                                    captured: {x: enemyX, y: enemyY} 
-                                });
-                            }
-                        }
-                        // Тихий хід
-                        if (!onlyCaptures) {
-                            const forward = isWhite ? -1 : 1;
-                            if (d[1] === forward) {
-                                if (enemyX >= 0 && enemyX < this.boardSize && enemyY >= 0 && enemyY < this.boardSize) {
-                                    if (!this.getPiece(enemyX, enemyY)) moves.push({ c: enemyX, r: enemyY });
-                                }
-                            }
-                        }
-                    } else {
-                        // Дамка
-                        let foundEnemy = null;
-                        for (let dist = 1; dist < this.boardSize; dist++) {
-                            const tx = cx + d[0] * dist;
-                            const ty = cy + d[1] * dist;
-                            if (tx < 0 || tx >= this.boardSize || ty < 0 || ty >= this.boardSize) break;
-                            const target = this.getPiece(tx, ty);
-
-                            if (!foundEnemy) {
-                                if (target) {
-                                    if (target.c !== piece.c) foundEnemy = { x: tx, y: ty };
-                                    else break;
-                                } else {
-                                    if (!onlyCaptures) moves.push({ c: tx, r: ty });
-                                }
-                            } else {
-                                if (target) break; // Блоковано
-                                // Це точка приземлення після бою
-                                possibleCaptures.push({ 
-                                    c: tx, r: ty, 
-                                    isCapture: true, 
-                                    captured: { x: foundEnemy.x, y: foundEnemy.y } 
-                                });
-                            }
-                        }
+            if (landX >= 0 && landX < this.boardSize && landY >= 0 && landY < this.boardSize) {
+                // Перевіряємо, чи це не "мертва" шашка
+                if (!this.isPendingCapture(enemyX, enemyY)) {
+                    const enemy = this.getPiece(enemyX, enemyY);
+                    const landing = this.getPiece(landX, landY);
+                    if (enemy && enemy.c !== piece.c && !landing) {
+                        possibleCaptures.push({ 
+                            c: landX, r: landY, 
+                            isCapture: true, 
+                            captured: {x: enemyX, y: enemyY} 
+                        });
                     }
                 }
-
-                // 2. Фільтрація згідно правила МАКСИМАЛЬНОГО БОЮ
-                if (possibleCaptures.length > 0) {
-                    // Для кожного варіанту бою рахуємо повну довжину ланцюжка
-                    let maxChainLen = 0;
-                    
-                    possibleCaptures.forEach(move => {
-                        // Початкова довжина = 1 (ми вже зробили цей стрибок).
-                        // Запускаємо рекурсію з нової точки, ігноруючи щойно побиту фігуру.
-                        const chainRest = this._measureCaptureChain(piece, move.c, move.r, [move.captured]);
-                        move.totalChain = 1 + chainRest;
-                        
-                        if (move.totalChain > maxChainLen) maxChainLen = move.totalChain;
-                    });
-
-                    // Залишаємо ТІЛЬКИ ті ходи, які ведуть до найдовшого ланцюжка
-                    // (Це змушує дамку обрати саме ту клітинку, з якої можна бити далі)
-                    return possibleCaptures.filter(m => m.totalChain === maxChainLen);
-                }
-
-                return onlyCaptures ? [] : moves;
             }
+            // Тихий хід (тільки якщо не вимушений бій)
+            if (!onlyCaptures) {
+                const forward = isWhite ? -1 : 1;
+                if (d[1] === forward) {
+                    if (enemyX >= 0 && enemyX < this.boardSize && enemyY >= 0 && enemyY < this.boardSize) {
+                        if (!this.getPiece(enemyX, enemyY)) moves.push({ c: enemyX, r: enemyY });
+                    }
+                }
+            }
+        } else {
+            // Дамка
+            let foundEnemy = null;
+            for (let dist = 1; dist < this.boardSize; dist++) {
+                const tx = cx + d[0] * dist;
+                const ty = cy + d[1] * dist;
+                if (tx < 0 || tx >= this.boardSize || ty < 0 || ty >= this.boardSize) break;
+                
+                // Якщо натрапили на "труп", він блокує рух (Стіна)
+                if (this.isPendingCapture(tx, ty)) break;
+
+                const target = this.getPiece(tx, ty);
+
+                if (!foundEnemy) {
+                    if (target) {
+                        if (target.c !== piece.c) foundEnemy = { x: tx, y: ty };
+                        else break; // Свій
+                    } else {
+                        if (!onlyCaptures) moves.push({ c: tx, r: ty });
+                    }
+                } else {
+                    if (target) break; // Блоковано за ворогом
+                    
+                    possibleCaptures.push({ 
+                        c: tx, r: ty, 
+                        isCapture: true, 
+                        captured: { x: foundEnemy.x, y: foundEnemy.y } 
+                    });
+                }
+            }
+        }
+    }
+
+    if (possibleCaptures.length > 0) {
+        let maxChainLen = 0;
+        possibleCaptures.forEach(move => {
+            // Передаємо тільки щойно знайденого ворога в ігнор для рекурсії
+            const chainRest = this._measureCaptureChain(piece, move.c, move.r, [move.captured]);
+            move.totalChain = 1 + chainRest;
+            if (move.totalChain > maxChainLen) maxChainLen = move.totalChain;
+        });
+        return possibleCaptures.filter(m => m.totalChain === maxChainLen);
+    }
+
+    return onlyCaptures ? [] : moves;
+}
 
             validateMove(piece, c1, r1, c2, r2, checkingAttack = false) {
                 if (!this.rulesEnabled) return true;
@@ -2270,6 +2279,15 @@ findKing(color) {
 switchTurn() {
                 if (!this.turnModeEnabled) return;
 
+                // Видаляємо всі побиті шашки тільки зараз, коли хід повністю завершено
+    if (this.pendingCaptures.length > 0) {
+        this.pendingCaptures.forEach(p => {
+            this.removePiece(p.x, p.y);
+            // Додамо візуальний ефект в історію, якщо треба, але фізично видаляємо тут
+        });
+        this.pendingCaptures = [];
+    }
+    // ---------------------------------------
                 this.currentTurn = this.currentTurn === 'w' ? 'b' : 'w';
 
                 // Оновлюємо статус шаху (тільки для шахів)
@@ -3152,14 +3170,14 @@ onMouseUp(e) {
                     const endC = Math.max(0, Math.min(this.boardSize - 1, rawC));
                     const endR = Math.max(0, Math.min(this.boardSize - 1, rawR));
 
-                    // Если начало и конец отличаются -> РИСУЕМ СТРЕЛКУ (Старая логика)
+                    // Малювання стрілок
                     if (this.rmbStart.c !== endC || this.rmbStart.r !== endR) {
                         const newArrow = { sx: this.rmbStart.c, sy: this.rmbStart.r, ex: endC, ey: endR };
                         const idx = this.customArrows.findIndex(a => a.sx === newArrow.sx && a.sy === newArrow.sy && a.ex === newArrow.ex && a.ey === newArrow.ey);
                         if (idx >= 0) this.customArrows.splice(idx, 1); 
                         else this.customArrows.push(newArrow);
                     } 
-                    // Если клик на ту же клетку -> КРАСНАЯ ПОДСВЕТКА (Новая логика)
+                    // Червона підсвітка (якщо клік на ту саму клітинку)
                     else {
                         const existingIdx = this.highlightedSquares.findIndex(s => s.c === endC && s.r === endR);
                         if (existingIdx >= 0) {
@@ -3225,11 +3243,12 @@ onMouseUp(e) {
                                         potentialMoves = potentialMoves.filter(m => m.isCapture);
                                     }
                                 }
-                                // -------------------------------------------------------
-
-                                // 2. Шукаємо, чи є серед них той, який зробив гравець
+                                
+                                // 2. Шукаємо, чи є серед доступних той хід, який зробив гравець
                                 const chosenMove = potentialMoves.find(m => m.c === c && m.r === r);
 
+                                // --- ТУТ БУЛА ПОМИЛКА: раніше тут був код з chosenMove, який викликав збій ---
+                                
                                 if (chosenMove) {
                                     let isMoveSafe = true;
                                     // Перевірка безпеки (для шахів)
@@ -3266,10 +3285,11 @@ onMouseUp(e) {
 
                                         // --- ВИКОНАННЯ ХОДУ ---
 
-                                        // 3. Видаляємо побиту шашку
+                                        // 3. Обробка побитої шашки (ТУРЕЦЬКИЙ УДАР) - ТЕПЕР В ПРАВИЛЬНОМУ МІСЦІ
                                         if (this.checkersSymbols.has(this.draggedPiece.data.s) && chosenMove.isCapture) {
                                             if (chosenMove.captured) {
-                                                this.removePiece(chosenMove.captured.x, chosenMove.captured.y);
+                                                // Додаємо до списку "смертників", видалимо їх тільки в кінці ходу
+                                                this.pendingCaptures.push(chosenMove.captured);
                                             }
                                         }
 
@@ -3285,6 +3305,7 @@ onMouseUp(e) {
                                             this.draggedPiece = null; this.isDraggingPiece = false; this.highlightedMoves = []; return;
                                         }
                                         if (isCheckerMan && r === promotionRow) {
+                                            // Дамка стає відразу, але хід може продовжитись, якщо є бій
                                             this.draggedPiece.data.s = isWhite ? '⛁' : '⛃';
                                         }
                                         
@@ -3298,19 +3319,23 @@ onMouseUp(e) {
                                         this.moveHistory.push(historyStep);
                                         this.updateLogUI();
                                         
-                                        // --- ПЕРЕВІРКА МУЛЬТИ-БІЙ ---
+                                        // --- ПЕРЕВІРКА МУЛЬТИ-БІЙ (Продовження ходу) ---
                                         if (this.checkersSymbols.has(this.draggedPiece.data.s) && chosenMove.isCapture) {
+                                            // Перевіряємо, чи є ще кого бити з нової позиції
                                             const followUpMoves = this.getCheckersMoves(this.draggedPiece.data, c, r, true);
+                                            
+                                            // Якщо є продовження серії:
                                             if (followUpMoves.length > 0) {
-                                                this.multiJumpSource = { c: c, r: r };
+                                                this.multiJumpSource = { c: c, r: r }; // Фіксуємо, що ходити може тільки ця фігура
                                                 this.isDraggingPiece = false;
                                                 this.draggedPiece = null;
                                                 this.highlightedMoves = [];
                                                 this.updateUI();
-                                                return; 
+                                                return; // Хід НЕ передаємо, гравець має бити далі
                                             }
                                         }
 
+                                        // Якщо серія закінчилась або це був звичайний хід
                                         this.multiJumpSource = null;
                                         setTimeout(() => this.switchTurn(), 0);
                                     }
@@ -3318,50 +3343,13 @@ onMouseUp(e) {
                             }
                         }
                     }
-                }
+                } // Кінець блоку if (e.button === 0)
 
                 this.isDragging = false;
                 this.isDraggingPiece = false;
                 this.draggedPiece = null;
                 this.highlightedMoves = []; 
                 this.updateUI();
-            }
-
-            undoMove() {
-                if (this.moveHistory.length === 0) return;
-                const last = this.moveHistory.pop();
-
-                last.changes.forEach(change => {
-                    if (change.value === undefined) this.grid.delete(change.key);
-                    else this.grid.set(change.key, change.value);
-                });
-
-                this.currentTurn = last.turn;
-                this.kingPos = last.prevKingPos;
-                this.multiJumpSource = last.multiJumpSource;
-                this.gameOver = false;
-                this.promotionPending = null;
-                document.getElementById('promotionOverlay').style.display = 'none';
-                document.getElementById('gameOverOverlay').style.display = 'none';
-
-                this.highlightedMoves = [];
-                this.updateTurnIndicator();
-                this.updateUI();
-                this.updateLogUI(); // <--- ВАЖЛИВО
-            }
-
-            onKeyDown(e) {
-                if (this.gameOver || this.turnModeEnabled || this.promotionPending) return;
-                if (e.key === 'Delete') {
-                    // Default delete key behavior is now Undo via main listener
-                } else if (e.shiftKey && e.key === 'Delete') {
-                    // Eraser tool
-                    const w = this.screenToWorld(this.mouse.x, this.mouse.y);
-                    const c = Math.floor(w.x / this.cellSize);
-                    const r = Math.floor(w.y / this.cellSize);
-                    this.removePiece(c, r);
-                    this.updateUI();
-                }
             }
 
             screenToWorld(sx, sy) { return { x: (sx - this.camera.x) / this.camera.zoom, y: (sy - this.camera.y) / this.camera.zoom }; }
@@ -3472,6 +3460,7 @@ onMouseUp(e) {
                 const width = this.canvas.width; const height = this.canvas.height;
                 const cs = this.cellSize * this.camera.zoom;
 
+
                 // 1. Очищення
                 ctx.fillStyle = this.colors.void;
                 ctx.fillRect(0, 0, width, height);
@@ -3488,6 +3477,7 @@ onMouseUp(e) {
                 const startRow = Math.floor((-this.camera.y) / cs);
                 const endRow = Math.floor((height - this.camera.y) / cs) + 1;
 
+                
                 // --- МАЛЮВАННЯ ДОШКИ (ВАШ СТИЛЬ) ---
                 if (bx < width && by < height && bx + bW > 0 && by + bH > 0) {
                      ctx.fillStyle = this.colors.light;
@@ -3638,19 +3628,29 @@ if (this.highlightedSquares.length > 0) {
                         
                         // Коли ми дуже далеко (насичений режим), краще брати LowRes, 
                         // він часто виглядає "жирніше" ніж Micro.
+                        // ... (вибір спрайта)
                         if (baseSize < 30) {
-                            // Використовуємо більш жирний шрифт/спрайт для насиченості
                             sprite = this.getLowResSprite(piece.s, piece.c); 
                         } else {
                             sprite = this.getPieceSprite(piece.s, piece.c);
                         }
                         
                         // 4. МАЛЮВАННЯ З НАХЛЬОСТОМ
-                        // finalSize гарантує, що картинка перекриє сусідні пікселі
+                        
+                        // --- ВСТАВИТИ ЦЕЙ КОД ТУТ ---
+                        const isDead = this.isPendingCapture(c, r);
+                        if (isDead) {
+                            ctx.globalAlpha = 0.5; // Робимо напівпрозорою
+                        }
+                        // ---------------------------
+
                         ctx.drawImage(sprite, px, py, finalSize, finalSize);
+                        
+                        // --- І ПОВЕРНУТИ ПРОЗОРІСТЬ ТУТ ---
+                        ctx.globalAlpha = 1.0; 
+                        // ---------------------------------
                     }
                 }
-
                 // 5. Інтерфейс (Стрілки/Текст) - як було
                 // 5. Інтерфейс (Стрілки/Текст) - АДАПТИВНИЙ РЕНДЕР
                 if (cs > 5) this.drawCustomArrows(ctx, cs, bx, by);
