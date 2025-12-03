@@ -2286,17 +2286,16 @@ switchTurn() {
                 if (!this.turnModeEnabled) return;
 
                 // Видаляємо всі побиті шашки тільки зараз, коли хід повністю завершено
-    if (this.pendingCaptures.length > 0) {
-        this.pendingCaptures.forEach(p => {
-            this.removePiece(p.x, p.y);
-            // Додамо візуальний ефект в історію, якщо треба, але фізично видаляємо тут
-        });
-        this.pendingCaptures = [];
-    }
-    // ---------------------------------------
+                if (this.pendingCaptures.length > 0) {
+                    this.pendingCaptures.forEach(p => {
+                        this.removePiece(p.x, p.y);
+                    });
+                    this.pendingCaptures = [];
+                }
+                
                 this.currentTurn = this.currentTurn === 'w' ? 'b' : 'w';
 
-                // Оновлюємо статус шаху (тільки для шахів)
+                // Оновлюємо статус шаху (тільки якщо це не явний режим шашок)
                 if (this.virtualGen !== 'checkers') {
                     this.kingsInCheck.w = this.isInCheck('w') ? this.findKing('w') : null;
                     this.kingsInCheck.b = this.isInCheck('b') ? this.findKing('b') : null;
@@ -2309,40 +2308,65 @@ switchTurn() {
                 setTimeout(() => {
                     if (this.gameOver) return;
 
-                    // --- ПЕРЕВІРКА НАЯВНОСТІ ФІГУР ---
+                    // --- ПЕРЕВІРКА НАЯВНОСТІ ФІГУР (Оптимізація) ---
                     let hasMaterial = false;
-                    if (this.boardSize <= 500) {
-                        for (let r = 0; r < this.boardSize; r++) {
-                            for (let c = 0; c < this.boardSize; c++) {
-                                const p = this.getPiece(c, r);
+                    // Для великих дошок не скануємо все підряд щоразу
+                    if (this.boardSize <= 100) { 
+                        for (const [key, val] of this.grid) {
+                            if (val !== GRID_VOID) {
+                                const id = val & 0xFFFF;
+                                const p = this.palette[id - 1];
                                 if (p && p.c === this.currentTurn) {
                                     hasMaterial = true;
                                     break;
                                 }
                             }
-                            if (hasMaterial) break;
                         }
+                         // Якщо це віртуальна генерація (army/checkers), фігури точно є
+                        if (this.virtualGen) hasMaterial = true;
                     } else {
                         hasMaterial = true; 
                     }
 
-                    if (!hasMaterial && this.virtualGen !== 'checkers') return;
+                    // Якщо фігур немає — це точно кінець (для шашок)
+                    if (!hasMaterial && (this.virtualGen === 'checkers' || this.boardSize <= 100)) {
+                         // Перевірка додаткова, щоб не спрацювало помилково на порожній дошці редактора
+                         if (this.pieceCount > 0 || this.virtualGen) {
+                            this.endGame("ПЕРЕМОГА!");
+                            return;
+                         }
+                    }
 
                     // --- ЛОГІКА КІНЦЯ ГРИ ---
                     
-                    // 1. МАТ (Працює завжди)
-                    if (this.kingsInCheck[this.currentTurn]) {
+                    // 1. МАТ (Тільки для шахів з Королями)
+                    if (this.virtualGen !== 'checkers' && this.kingsInCheck[this.currentTurn]) {
                         if (!this.hasAnyLegalMoves(this.currentTurn)) {
                             this.endGame("МАТ!");
+                            return;
                         }
                     } 
-                    // 2. ПАТ (Нічия) - ТІЛЬКИ ДЛЯ МАЛИХ ДОШОК
-                    // Виправлення: Зменшили ліміт з 100 до 24.
-                    // На дошках 50x50 і 100x100 перевірка на пат вимикається, щоб не було багів.
-                    else if (this.boardSize <= 24) { 
+                    
+                    // 2. ВІДСУТНІСТЬ ХОДІВ (Шашки = Перемога, Шахи = Пат)
+                    // ВИПРАВЛЕНО: Збільшено ліміт до 100 (було 24), або якщо це режим шашок
+                    if (this.boardSize <= 100 || this.virtualGen === 'checkers') { 
                         if (!this.hasAnyLegalMoves(this.currentTurn)) {
-                            if (this.virtualGen === 'checkers') this.endGame("ПЕРЕМОГА!");
-                            else this.showStalemate();
+                            
+                            // Визначаємо, чи це "ситуація шашок"
+                            // 1. Якщо явно обрано режим шашок
+                            // 2. АБО якщо на дошці НЕМАЄ королів (значить це кастомна гра в шашки з редактора)
+                            const isCheckersScenario = (this.virtualGen === 'checkers') || 
+                                                       (!this.findKing('w') && !this.findKing('b'));
+
+                            if (isCheckersScenario) {
+                                // У шашках: якщо немає ходів — ти програв -> суперник виграв
+                                this.endGame("ПЕРЕМОГА!"); 
+                            } else {
+                                // У шахах: якщо немає ходів і немає шаху — це Пат
+                                if (!this.kingsInCheck[this.currentTurn]) {
+                                    this.showStalemate();
+                                }
+                            }
                         }
                     }
                 }, 50);
