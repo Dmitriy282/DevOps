@@ -919,7 +919,7 @@ const megaDefs = {
                     if (e.key === 'Delete') {
                         this.undoMove();
                     } else {
-                        this.onKeyDown(e);
+                        // this.onKeyDown(e); // <--- ЦЕЙ РЯДОК Я ВИДАЛИВ, ВІН ЛАМАВ НАВІГАЦІЮ
                         if(this.keys.hasOwnProperty(e.code)) {
                             this.keys[e.code] = true;
                             e.preventDefault();
