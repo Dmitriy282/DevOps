@@ -2736,92 +2736,130 @@ switchTurn() {
                 return false;
             }
 
-           hasAnyLegalMoves(color) {
-                // Обмежувач для гігантських дошок
-                const MAX_CHECKS = 1000; // Можна залишити фіксованим
-                let checked = 0;
+hasAnyLegalMoves(color) {
+    // ВЕРСІЯ: UNLIMITED (Без обмежень)
+    // Цей код не зупиниться, поки не перевірить ВСІ фігури або не знайде хід.
+    // Це гарантує точність на 100%.
 
-                // А. Спочатку перевіряємо КОРОЛЯ (найчастіший вихід з мату)
-                const kPos = this.findKing(color);
-                if (kPos) {
-                    const kPiece = this.getPiece(kPos.c, kPos.r);
-                    if (kPiece) {
-                        const moves = this.generatePotentialMoves(kPiece, kPos.c, kPos.r);
-                        for (const m of moves) {
-                            if (this.simulateMoveAndCheckSafety(kPiece, kPos.c, kPos.r, m.c, m.r)) {
-                                return true; 
-                            }
-                        }
-                    }
+    // А. Спочатку перевіряємо КОРОЛЯ (найчастіший вихід з мату)
+    const kPos = this.findKing(color);
+    if (kPos) {
+        const kPiece = this.getPiece(kPos.c, kPos.r);
+        if (kPiece) {
+            const moves = this.generatePotentialMoves(kPiece, kPos.c, kPos.r);
+            for (const m of moves) {
+                if (this.simulateMoveAndCheckSafety(kPiece, kPos.c, kPos.r, m.c, m.r)) {
+                    return true; 
                 }
-
-                // Б. Перевіряємо ВСІ фігури на дошці
-                // --- ВИПРАВЛЕННЯ ТУТ: Зміни 20 на 200 ---
-                if (this.boardSize <= 200) { 
-                    for (let r = 0; r < this.boardSize; r++) {
-                        for (let c = 0; c < this.boardSize; c++) {
-                            const p = this.getPiece(c, r);
-                            if (p && p.c === color) {
-                                // Пропускаємо короля, бо ми його вже перевірили
-                                if (p.s === '♔' || p.s === '♚') continue;
-
-                                const moves = this.generatePotentialMoves(p, c, r);
-                                for (const m of moves) {
-                                    if (this.simulateMoveAndCheckSafety(p, c, r, m.c, m.r)) {
-                                        return true;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                
-                } else {
-                    // В. Для великих дошок - стара логіка з Grid + Virtual Ranges
-                    // ... (тут залишаємо ваш старий код для оптимізації, якщо треба, 
-                    // але для фіксу мату на 8х8 блоку Б достатньо) ...
-                    
-                    // Перевірка Grid
-                    for (const [key, val] of this.grid) {
-                        if (checked >= MAX_CHECKS) return true;
-                        if (val === GRID_VOID) continue;
-                        const comma = key.indexOf(',');
-                        const cx = parseInt(key.substring(0, comma));
-                        const cy = parseInt(key.substring(comma + 1));
-                        const id = val & 0xFFFF;
-                        const p = this.palette[id-1];
-                        if (p.c === color && (cx !== kPos?.c || cy !== kPos?.r)) {
-                            const moves = this.generatePotentialMoves(p, cx, cy);
-                            for (const m of moves) {
-                                if (this.simulateMoveAndCheckSafety(p, cx, cy, m.c, m.r)) return true;
-                            }
-                            checked++;
-                        }
-                    }
-                    // Перевірка Virtual (тільки ряди)
-                    if (this.virtualGen) {
-                        let armyH = Math.floor(this.boardSize * (this.virtualProps.percent / 100));
-                        if(armyH < 2) armyH = 2;
-                        const ranges = [{start: 0, end: armyH}, {start: this.boardSize - armyH, end: this.boardSize}];
-                        for(const rng of ranges) {
-                            for(let r=rng.start; r<rng.end && checked < MAX_CHECKS; r++) {
-                                for(let c=0; c<this.boardSize; c++) {
-                                    if(this.grid.has(this.getKey(c,r))) continue;
-                                    const p = this.getVirtualPiece(c,r);
-                                    if(p && p.c === color) {
-                                        const moves = this.generatePotentialMoves(p, c, r);
-                                        for(const m of moves) {
-                                            if (this.simulateMoveAndCheckSafety(p, c, r, m.c, m.r)) return true;
-                                        }
-                                        checked++;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                return false; // ХОДІВ НЕМАЄ -> МАТ або ПАТ
             }
+        }
+    }
+
+    // Б. Перевіряємо ВСІ фігури на дошці
+    if (this.boardSize <= 200) { 
+        // Для "малих" дошок - повний перебір
+        for (let r = 0; r < this.boardSize; r++) {
+            for (let c = 0; c < this.boardSize; c++) {
+                const p = this.getPiece(c, r);
+                if (p && p.c === color) {
+                    if (p.s === '♔' || p.s === '♚') continue; 
+
+                    const moves = this.generatePotentialMoves(p, c, r);
+                    for (const m of moves) {
+                        if (this.simulateMoveAndCheckSafety(p, c, r, m.c, m.r)) return true;
+                    }
+                }
+            }
+        }
+    } else {
+        // В. Для великих дошок - сканування зон
+        
+        // 1. Перевіряємо реальні зміни (GRID) - ВСІ без винятку
+        for (const [key, val] of this.grid) {
+            if (val === GRID_VOID) continue;
+            
+            const comma = key.indexOf(',');
+            const cx = parseInt(key.substring(0, comma));
+            const cy = parseInt(key.substring(comma + 1));
+            const id = val & 0xFFFF;
+            const p = this.palette[id-1];
+            
+            if (p && p.c === color && (cx !== kPos?.c || cy !== kPos?.r)) {
+                const moves = this.generatePotentialMoves(p, cx, cy);
+                for (const m of moves) {
+                    if (this.simulateMoveAndCheckSafety(p, cx, cy, m.c, m.r)) return true;
+                }
+            }
+        }
+
+        // 2. Перевірка Віртуальних Армій (тільки зони, де є фігури)
+        if (this.virtualGen) {
+            let armyH = 0;
+            if (this.virtualGen === 'checkers') {
+                armyH = Math.floor(this.boardSize * (this.virtualProps.percent / 100));
+            } else if (this.virtualGen === 'chess960') {
+                armyH = 2;
+            } else {
+                let percent = this.virtualProps.percent;
+                armyH = Math.floor(this.boardSize * (percent / 100));
+                if (armyH < 2) armyH = 2;
+            }
+
+            // Оптимізація порядку сканування:
+            // Для Чорних (зверху) скануємо ЗНИЗУ ВГОРУ (від фронту до тилу).
+            // Для Білих (знизу) скануємо ЗВЕРХУ ВНИЗ (від фронту до тилу).
+            // Це дозволяє знайти хід набагато швидше, не перевіряючи заблокований тил.
+
+            const ranges = [];
+            
+            // Чорні фігури (зверху: 0 ... armyH)
+            // Додаємо діапазон так, щоб цикл йшов від armyH-1 до 0
+            if (color === 'b') {
+                ranges.push({start: 0, end: armyH, reverse: true});
+            } else {
+                // Білих тут немає, але для повноти коду:
+                ranges.push({start: 0, end: armyH, reverse: false});
+            }
+
+            // Білі фігури (знизу: boardSize-armyH ... boardSize)
+            if (color === 'w') {
+                ranges.push({start: this.boardSize - armyH, end: this.boardSize, reverse: false}); // Скануємо від фронту (верх білих) до низу
+            } else {
+                ranges.push({start: this.boardSize - armyH, end: this.boardSize, reverse: true});
+            }
+            
+            for(const rng of ranges) {
+                const runScan = (r) => {
+                    for(let c=0; c<this.boardSize; c++) {
+                        if(this.grid.has(this.getKey(c,r))) continue;
+                        
+                        const p = this.getVirtualPiece(c,r);
+                        if(p && p.c === color) {
+                            const moves = this.generatePotentialMoves(p, c, r);
+                            // Якщо є хоч один безпечний хід - перемога, виходимо
+                            for(const m of moves) {
+                                if (this.simulateMoveAndCheckSafety(p, c, r, m.c, m.r)) return true;
+                            }
+                        }
+                    }
+                    return false;
+                };
+
+                if (rng.reverse) {
+                    for(let r = rng.end - 1; r >= rng.start; r--) {
+                        if (runScan(r)) return true;
+                    }
+                } else {
+                    for(let r = rng.start; r < rng.end; r++) {
+                        if (runScan(r)) return true;
+                    }
+                }
+            }
+        }
+    }
+
+    return false; // Якщо дійшли сюди - це 100% МАТ/ПАТ
+}
             _resolveDirs(d) { return typeof d === 'string' ? DIRS[d] : d; }
 
             generatePotentialMoves(piece, cx, cy, bounds = null) {
@@ -4131,10 +4169,9 @@ if (this.highlightedSquares.length > 0) {
     }
     return counts;
 }
-           updatePieceCounts() {
+       updatePieceCounts() {
     let stats = { w: new Map(), b: new Map() };
     
-    // Функція зміни кількості. Якщо count <= 0, видаляємо запис, щоб не було мінусів.
     const modify = (color, symbol, delta) => {
         let map = stats[color];
         let current = map.get(symbol) || 0n;
@@ -4143,7 +4180,9 @@ if (this.highlightedSquares.length > 0) {
         else map.set(symbol, next);
     };
 
-    // 1. БАЗОВИЙ РОЗРАХУНОК (Віртуальний)
+    let bs = this.displayBoardSize || BigInt(this.boardSize);
+
+    // --- 1. БАЗОВИЙ МАТЕМАТИЧНИЙ РОЗРАХУНОК (Всі режими) ---
     if (this.virtualGen) {
         let armyRows = 0;
         if (this.virtualGen === 'checkers') {
@@ -4156,84 +4195,62 @@ if (this.highlightedSquares.length > 0) {
             if (armyRows < 2) armyRows = 2;
         }
 
-        // Отримуємо ідеальні цифри для ОДНІЄЇ команди
+        // Рахуємо ідеальну початкову кількість
         const baseCounts = this.calculateVirtualCounts(this.boardSize, armyRows, this.virtualGen, this.virtualProps);
 
         const classicMirror = {
             'rook': ['♖', '♜'], 'knight': ['♘', '♞'], 'bishop': ['♗', '♝'],
             'queen': ['♕', '♛'], 'king': ['♔', '♚'], 'pawn': ['♙', '♟'],
-            'checker': ['⛀', '⛂'] // Шашки теж тут
+            'checker': ['⛀', '⛂']
         };
 
         baseCounts.forEach((count, key) => {
             if (classicMirror[key]) {
-                // Розподіляємо абстрактні типи (rook -> white rook, black rook)
                 modify('w', classicMirror[key][0], count);
                 modify('b', classicMirror[key][1], count);
             } else {
-                // Фентезі фігури додаємо обом
                 modify('w', key, count);
                 modify('b', key, count);
             }
         });
-
-        // ФІКС ДЛЯ МАЛИХ ДОШОК (< 500) - ТЕПЕР ВКЛЮЧАЄ ВСІ РЕЖИМИ
-        // Якщо дошка мала, краще просто пересканувати, ніж вгадувати
-        if (this.boardSize <= 500) {
-            stats = { w: new Map(), b: new Map() }; // Повне скидання
-            const scanZone = (startR, endR) => {
-                for(let r=startR; r<endR; r++) {
-                    for(let c=0; c<this.boardSize; c++) {
-                        // Якщо клітинку не змінювали вручну (немає в grid)
-                        if (!this.grid.has(this.getKey(c,r))) {
-                            const p = this.getVirtualPiece(c, r);
-                            if (p) modify(p.c, p.s, 1);
-                        }
-                    }
-                }
-            };
-            // Скануємо зони армій
-            scanZone(0, armyRows); 
-            scanZone(this.boardSize - armyRows, this.boardSize); 
-        }
+        
+        // МИ ПРИБРАЛИ БЛОК "FIX FOR SMALL BOARDS"
+        // Тепер логіка єдина і точна для будь-якого розміру.
     }
 
-    // 2. ОБРОБКА ЗМІН (GRID)
-    // Тут ми враховуємо рухи, видалення та нові фігури
+    // --- 2. ОБРОБКА ЗМІН (GRID) - УНІВЕРСАЛЬНА ---
     for (const [key, val] of this.grid) {
         const comma = key.indexOf(',');
         const c = parseInt(key.substring(0, comma));
         const r = parseInt(key.substring(comma + 1));
 
-        // А. Якщо це ВЕЛИКА дошка, віднімаємо те, що там було "віртуально"
-        if (this.virtualGen && this.boardSize > 500) { 
+        // А. ВІДНІМАЄМО ВІРТУАЛЬНУ ФІГУРУ (Завжди, якщо режим генерації активний)
+        // Раніше це працювало тільки для > 500, тепер для всіх.
+        // Це виправляє глюк, коли фігура рахувалась двічі.
+        if (this.virtualGen) { 
             const vp = this.getVirtualPiece(c, r);
             if (vp) modify(vp.c, vp.s, -1);
         } 
 
-        // Б. Додаємо те, що стоїть зараз (реально)
+        // Б. ДОДАЄМО РЕАЛЬНУ ФІГУРУ (Якщо вона не видалена)
         if (val !== GRID_VOID) {
             const id = val & 0xFFFF;
             const p = this.palette[id - 1];
             if (p) modify(p.c, p.s, 1);
         }
-        // Якщо val === GRID_VOID, значить фігуру видалили/побили. 
-        // Ми вже відняли віртуальну в кроці А, і нічого не додали в кроці Б.
-        // Результат: -1 фігура. Все вірно.
     }
 
-    // 3. ОБРОБКА ПОБИТИХ (В процесі анімації або мульти-бою)
-    // Це важливо для шашок, коли фігура ще на дошці візуально, але вже "мертва"
+    // --- 3. ОБРОБКА ПОБИТИХ (В процесі анімації або мульти-бою) ---
     if (this.pendingCaptures.length > 0) {
         this.pendingCaptures.forEach(pos => {
-            // Тут важливо використовувати getPiece, щоб знайти саме ту фігуру, яка там є (віртуальна чи реальна)
+            // Тут getPiece поверне те, що зараз на дошці (віртуальне або реальне)
             const victim = this.getPiece(pos.x, pos.y);
             if (victim) modify(victim.c, victim.s, -1);
         });
     }
 
-    // --- РЕНДЕР HTML (Без змін) ---
-    const totalSquaresBig = BigInt(this.boardSize) * BigInt(this.boardSize);
+    // --- 4. РЕНДЕР HTML (Ваш стандартний код) ---
+    const totalSquaresBig = bs * bs;
     let sLen = totalSquaresBig.toString().length - 1; 
 
     let wTotal = 0n, bTotal = 0n;
@@ -4248,7 +4265,7 @@ if (this.highlightedSquares.length > 0) {
         let sortedKeys = [...map.keys()].sort((a,b) => {
             let idxA = priority.indexOf(a);
             let idxB = priority.indexOf(b);
-            if (idxA === -1) idxA = 100; 
+            if (idxA === -1) idxA = 100;
             if (idxB === -1) idxB = 100;
             return idxA - idxB;
         });
