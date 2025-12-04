@@ -1482,20 +1482,20 @@ getVirtualPiece(c, r) {
                 
                 // --- НОВА ЛОГІКА ДЛЯ АРМІЇ (Щоб не зависало) ---
                 if (this.virtualGen === 'army') {
-                    // Половина рядів - офіцери, половина - пішаки
                     const officerRows = Math.floor(height / 2);
                     
-                    // Якщо це передні ряди - ставимо Пішаків
+                    // Пішаки (передні ряди)
                     if (relativeRow >= officerRows) {
                          return { x: c, y: -1, s: color === 'w' ? '♙' : '♟', c: color };
                     }
                     
-                    // Якщо це задні ряди - ставимо патерн Офіцерів
+                    // Офіцери (задні ряди) - Жорсткий масив замість Math.sin
                     const pattern = ['♖', '♘', '♗', '♕', '♔', '♗', '♘', '♖'];
                     const mirrorMap = { '♖':'♜', '♘':'♞', '♗':'♝', '♕':'♛', '♔':'♚' };
                     
-                    let sym = pattern[c % 8]; // Повторення кожні 8 клітинок
-                    if (color !== 'w') sym = mirrorMap[sym]; // Для чорних/червоних
+                    // Використовуємо залишок від ділення (%) - це миттєва операція
+                    let sym = pattern[c % 8]; 
+                    if (color !== 'w') sym = mirrorMap[sym];
                     
                     return { x: c, y: -1, s: sym, c: color };
                 }
@@ -2635,77 +2635,55 @@ switchTurn() {
             isInCheck(kingColor) {
                 const opponent = (kingColor === 'w') ? 'b' : 'w';
                 const kingSymbol = (kingColor === 'w') ? '♔' : '♚';
-                
-                // 1. ПЕРЕВІРКА ГРІДУ (Всі фігури, що ходили або поставлені вручну)
-                // Це знайде королів будь-де, навіть якщо вони втекли в центр дошки
-                for (const [key, val] of this.grid) {
-                    if (val === GRID_VOID) continue;
-                    const id = val & 0xFFFF;
-                    const p = this.palette[id - 1];
 
-                    if (p && p.c === kingColor && p.s === kingSymbol) {
-                        const coord = key.split(',');
-                        const c = parseInt(coord[0]);
-                        const r = parseInt(coord[1]);
-
-                        if (this.isSquareAttacked(c, r, opponent)) {
-                            if (kingColor === 'w') this.kingPos.w = {c, r};
-                            else this.kingPos.b = {c, r};
+                // 1. КРОК А: Завжди перевіряємо Головного Короля (Генерала)
+                // Це потрібно для коректного відображення "Мат/Шах" у UI
+                const mainKing = this.findKing(kingColor);
+                if (mainKing) {
+                    // Переконуємось, що його не видалили гумкою
+                    const pieceAtKing = this.getPiece(mainKing.c, mainKing.r);
+                    if (pieceAtKing && pieceAtKing.s === kingSymbol && pieceAtKing.c === kingColor) {
+                        // Використовуємо класичну перевірку (Raycast) тільки для однієї точки
+                        if (this.isSquareAttacked(mainKing.c, mainKing.r, opponent)) {
+                            if (kingColor === 'w') this.kingPos.w = mainKing; else this.kingPos.b = mainKing;
                             return true;
                         }
                     }
                 }
 
-                // 2. ПЕРЕВІРКА ВІРТУАЛЬНИХ КОРОЛІВ (Зона Армії)
-                if (this.virtualGen === 'army') {
-                    // Визначаємо висоту армії (скільки рядів зайнято)
-                    let armyRows = 2; // Мінімум
-                    if (this.virtualProps && this.virtualProps.percent) {
-                        armyRows = Math.floor(this.boardSize * (this.virtualProps.percent / 100));
-                    }
+                // 2. КРОК Б: "Зворотній пошук" для режиму Армія
+                // Замість сканування 10,000 королів, ми скануємо тільки АКТИВНИХ ВОРОГІВ.
+                // Активні вороги - це ті, що знаходяться у списку this.grid (ті, що ходили).
+                
+                for (const [key, val] of this.grid) {
+                    if (val === GRID_VOID) continue;
                     
-                    // Визначаємо діапазон рядів для перевірки
-                    let startR, endR;
-                    if (kingColor === 'b') {
-                        // Чорні зверху (від 0 до armyRows)
-                        startR = 0; 
-                        endR = armyRows;
-                    } else {
-                        // Білі знизу (від boardSize - armyRows до boardSize)
-                        startR = this.boardSize - armyRows;
-                        endR = this.boardSize;
-                    }
+                    // Розшифровуємо фігуру
+                    const id = val & 0xFFFF;
+                    const attacker = this.palette[id - 1];
 
-                    // Скануємо ВСЮ зону армії
-                    // (Крок 1 гарантує, що ми не пропустимо жодного короля)
-                    const step = (this.boardSize > 2000) ? 4 : 1; // Оптимізація тільки для гігантських дошок
+                    // Якщо це ворог
+                    if (attacker && attacker.c === opponent) {
+                        const coord = key.split(',');
+                        const ax = parseInt(coord[0]);
+                        const ay = parseInt(coord[1]);
 
-                    for (let r = startR; r < endR; r++) {
-                        for (let c = 0; c < this.boardSize; c += step) {
+                        // Генеруємо його ходи (куди він б'є)
+                        const moves = this.generatePotentialMoves(attacker, ax, ay);
+                        
+                        for (const m of moves) {
+                            // Дивимось, що стоїть під ударом
+                            // getPiece дістане і віртуального короля з армії!
+                            const target = this.getPiece(m.c, m.r);
                             
-                            // Пропускаємо, якщо клітинка змінена (вже перевірена в блоці 1)
-                            if (this.grid.has(this.getKey(c, r))) continue;
-
-                            const p = this.getVirtualPiece(c, r);
-                            
-                            // Якщо це віртуальний Король
-                            if (p && p.c === kingColor && p.s === kingSymbol) {
-                                if (this.isSquareAttacked(c, r, opponent)) {
-                                    // Знайшли! Оновлюємо таргет для червоної підсвітки
-                                    if (kingColor === 'w') this.kingPos.w = {c, r};
-                                    else this.kingPos.b = {c, r};
-                                    return true;
-                                }
+                            if (target && target.c === kingColor && target.s === kingSymbol) {
+                                // Бінго! Ворог атакує одного з наших королів
+                                if (kingColor === 'w') this.kingPos.w = {c: m.c, r: m.r}; 
+                                else this.kingPos.b = {c: m.c, r: m.r};
+                                return true;
                             }
                         }
                     }
-                } 
-                // 3. ІНШІ РЕЖИМИ (Класика/960 - перевіряємо лише головного короля)
-                else if (this.virtualGen !== 'checkers') {
-                     const k = this.findKing(kingColor);
-                     if (k && !this.grid.has(this.getKey(k.c, k.r))) {
-                         if (this.isSquareAttacked(k.c, k.r, opponent)) return true;
-                     }
                 }
 
                 return false;
