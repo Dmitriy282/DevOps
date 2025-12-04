@@ -2340,17 +2340,21 @@ findKing(color) {
 switchTurn() {
                 if (!this.turnModeEnabled) return;
 
-                // Видаляємо всі побиті шашки тільки зараз, коли хід повністю завершено
+                // Видаляємо всі побиті шашки (фізично)
                 if (this.pendingCaptures.length > 0) {
                     this.pendingCaptures.forEach(p => {
                         this.removePiece(p.x, p.y);
                     });
                     this.pendingCaptures = [];
+                    
+                    // ВАЖЛИВО: Оновлюємо UI після фізичного видалення, 
+                    // щоб лічильник і реальний стан дошки синхронізувалися
+                    this.updateUI(); 
                 }
                 
                 this.currentTurn = this.currentTurn === 'w' ? 'b' : 'w';
 
-                // Оновлюємо статус шаху (тільки якщо це не явний режим шашок)
+                // Оновлюємо статус шаху
                 if (this.virtualGen !== 'checkers') {
                     this.kingsInCheck.w = this.isInCheck('w') ? this.findKing('w') : null;
                     this.kingsInCheck.b = this.isInCheck('b') ? this.findKing('b') : null;
@@ -2363,9 +2367,7 @@ switchTurn() {
                 setTimeout(() => {
                     if (this.gameOver) return;
 
-                    // --- ПЕРЕВІРКА НАЯВНОСТІ ФІГУР (Оптимізація) ---
                     let hasMaterial = false;
-                    // Для великих дошок не скануємо все підряд щоразу
                     if (this.boardSize <= 100) { 
                         for (const [key, val] of this.grid) {
                             if (val !== GRID_VOID) {
@@ -2377,24 +2379,19 @@ switchTurn() {
                                 }
                             }
                         }
-                         // Якщо це віртуальна генерація (army/checkers), фігури точно є
                         if (this.virtualGen) hasMaterial = true;
                     } else {
                         hasMaterial = true; 
                     }
 
-                    // Якщо фігур немає — це точно кінець (для шашок)
                     if (!hasMaterial && (this.virtualGen === 'checkers' || this.boardSize <= 100)) {
-                         // Перевірка додаткова, щоб не спрацювало помилково на порожній дошці редактора
                          if (this.pieceCount > 0 || this.virtualGen) {
                             this.endGame("ПЕРЕМОГА!");
                             return;
                          }
                     }
 
-                    // --- ЛОГІКА КІНЦЯ ГРИ ---
-                    
-                    // 1. МАТ (Тільки для шахів з Королями)
+                    // Перевірка на Мат / Пат
                     if (this.virtualGen !== 'checkers' && this.kingsInCheck[this.currentTurn]) {
                         if (!this.hasAnyLegalMoves(this.currentTurn)) {
                             this.endGame("МАТ!");
@@ -2402,22 +2399,14 @@ switchTurn() {
                         }
                     } 
                     
-                    // 2. ВІДСУТНІСТЬ ХОДІВ (Шашки = Перемога, Шахи = Пат)
-                    // ВИПРАВЛЕНО: Збільшено ліміт до 100 (було 24), або якщо це режим шашок
                     if (this.boardSize <= 100 || this.virtualGen === 'checkers') { 
                         if (!this.hasAnyLegalMoves(this.currentTurn)) {
-                            
-                            // Визначаємо, чи це "ситуація шашок"
-                            // 1. Якщо явно обрано режим шашок
-                            // 2. АБО якщо на дошці НЕМАЄ королів (значить це кастомна гра в шашки з редактора)
                             const isCheckersScenario = (this.virtualGen === 'checkers') || 
                                                        (!this.findKing('w') && !this.findKing('b'));
 
                             if (isCheckersScenario) {
-                                // У шашках: якщо немає ходів — ти програв -> суперник виграв
                                 this.endGame("ПЕРЕМОГА!"); 
                             } else {
-                                // У шахах: якщо немає ходів і немає шаху — це Пат
                                 if (!this.kingsInCheck[this.currentTurn]) {
                                     this.showStalemate();
                                 }
@@ -3994,6 +3983,7 @@ if (this.highlightedSquares.length > 0) {
                 // Використовуємо збережений "космічний" розмір
                 let bs = this.displayBoardSize || BigInt(this.boardSize);
 
+                // 1. Спочатку рахуємо "Ідеальну" кількість (віртуальну базу)
                 if (this.virtualGen) {
                     let rows = 0n;
                     if (this.virtualGen === 'chess960') {
@@ -4011,18 +4001,46 @@ if (this.highlightedSquares.length > 0) {
                     b = totalBase;
                 }
 
-                // Додаємо ручні зміни (тільки якщо дошка мала, для швидкості)
-                if (bs < 1000000n) {
-                    for (const [key, val] of this.grid) {
-                        if (val !== GRID_VOID) {
-                            const id = val & 0xFFFF;
-                            const p = this.palette[id - 1];
+                // 2. Проходимо по змінах у Grid (Дельта-метод)
+                for (const [key, val] of this.grid) {
+                    const comma = key.indexOf(',');
+                    const c = parseInt(key.substring(0, comma));
+                    const r = parseInt(key.substring(comma + 1));
+
+                    // А. Якщо тут була віртуальна фігура — віднімаємо її
+                    if (this.virtualGen) {
+                        const virtualP = this.getVirtualPiece(c, r);
+                        if (virtualP) {
+                            if (virtualP.c === 'w') w = w - 1n;
+                            else if (virtualP.c === 'b') b = b - 1n;
+                        }
+                    }
+
+                    // Б. Якщо тут тепер стоїть реальна фігура — додаємо її
+                    if (val !== GRID_VOID) {
+                        const id = val & 0xFFFF;
+                        const p = this.palette[id - 1];
+                        if (p) {
                             if (p.c === 'w') w = w + 1n;
                             else if (p.c === 'b') b = b + 1n;
                         }
                     }
                 }
 
+                // 3. НОВЕ: Віднімаємо фігури, які знаходяться в "списку смертників" (pendingCaptures)
+                // Вони технічно ще на дошці, але для гравця вони вже мертві
+                if (this.pendingCaptures.length > 0) {
+                    this.pendingCaptures.forEach(p => {
+                        // Дивимося, якого кольору фігура стоїть на координатах p.x, p.y
+                        const victim = this.getPiece(p.x, p.y);
+                        if (victim) {
+                            if (victim.c === 'w') w = w - 1n;
+                            else if (victim.c === 'b') b = b - 1n;
+                        }
+                    });
+                }
+
+                // Відображення
                 const totalSquaresBig = bs * bs;
                 let sLen = totalSquaresBig.toString().length - 1;
 
@@ -4039,7 +4057,6 @@ if (this.highlightedSquares.length > 0) {
                 `;
                 document.getElementById('count').innerHTML = html;
             }
-
             updateUI() {
                 // Викликаємо нашу нову функцію підрахунку
                 this.updatePieceCounts();
