@@ -1629,7 +1629,7 @@ getVirtualPiece(c, r) {
                 this.pieceCount = 0;
                 this.currentTurn = 'w'; this.gameOver = false;
                 this.multiJumpSource = null;
-                this.kingsInCheck = { w: null, b: null };
+                this.kingsInCheck = { w: [], b: [] };
                 this.kingPos = { w: null, b: null };
                 this.promotionPending = null;
                 document.getElementById('promotionOverlay').style.display = 'none';
@@ -2341,6 +2341,10 @@ findKing(color) {
 
             showStalemate() {
                 this.gameOver = true;
+
+                const titleEl = document.querySelector('.victory-card h1');
+                if (titleEl) titleEl.innerText = "ВІТАЮ З НІЧИЄЮ!";
+                
                 document.getElementById('winnerTxt').innerText = "Нічия (Пат)";
                 document.getElementById('winnerIcon').innerText = "🤝"; // Іконка рукостискання
                 document.getElementById('gameOverOverlay').style.display = 'flex';
@@ -2377,9 +2381,6 @@ switchTurn() {
                         this.removePiece(p.x, p.y);
                     });
                     this.pendingCaptures = [];
-                    
-                    // ВАЖЛИВО: Оновлюємо UI після фізичного видалення, 
-                    // щоб лічильник і реальний стан дошки синхронізувалися
                     this.updateUI(); 
                 }
                 
@@ -2387,17 +2388,18 @@ switchTurn() {
 
                 // Оновлюємо статус шаху
                 if (this.virtualGen !== 'checkers') {
-                    this.kingsInCheck.w = this.isInCheck('w') ? this.findKing('w') : null;
-                    this.kingsInCheck.b = this.isInCheck('b') ? this.findKing('b') : null;
+                    this.updateKingCheckStatus('w');
+                    this.updateKingCheckStatus('b');
                 } else {
-                    this.kingsInCheck = { w: null, b: null };
+                    this.kingsInCheck = { w: [], b: [] };
                 }
-
+                
                 this.updateTurnIndicator();
 
                 setTimeout(() => {
                     if (this.gameOver) return;
 
+                    // Перевірка наявності матеріалу (оптимізація)
                     let hasMaterial = false;
                     if (this.boardSize <= 100) { 
                         for (const [key, val] of this.grid) {
@@ -2415,6 +2417,7 @@ switchTurn() {
                         hasMaterial = true; 
                     }
 
+                    // Перемога, якщо у суперника немає фігур (для шашок)
                     if (!hasMaterial && (this.virtualGen === 'checkers' || this.boardSize <= 100)) {
                          if (this.pieceCount > 0 || this.virtualGen) {
                             this.endGame("ПЕРЕМОГА!");
@@ -2422,14 +2425,20 @@ switchTurn() {
                          }
                     }
 
-                    // Перевірка на Мат / Пат
-                    if (this.virtualGen !== 'checkers' && this.kingsInCheck[this.currentTurn]) {
+                    // --- ВИПРАВЛЕННЯ ЛОГІКИ МАТУ/ПАТУ ---
+
+                    // 1. Перевірка на МАТ (Шах є + Ходів немає)
+                    // Важливо: перевіряємо .length > 0, бо порожній масив [] це true!
+                    const isCheck = this.kingsInCheck[this.currentTurn] && this.kingsInCheck[this.currentTurn].length > 0;
+
+                    if (this.virtualGen !== 'checkers' && isCheck) {
                         if (!this.hasAnyLegalMoves(this.currentTurn)) {
                             this.endGame("МАТ!");
                             return;
                         }
                     } 
                     
+                    // 2. Перевірка на ПАТ (Шаху немає + Ходів немає)
                     if (this.boardSize <= 100 || this.virtualGen === 'checkers') { 
                         if (!this.hasAnyLegalMoves(this.currentTurn)) {
                             const isCheckersScenario = (this.virtualGen === 'checkers') || 
@@ -2438,7 +2447,8 @@ switchTurn() {
                             if (isCheckersScenario) {
                                 this.endGame("ПЕРЕМОГА!"); 
                             } else {
-                                if (!this.kingsInCheck[this.currentTurn]) {
+                                // Якщо це шахи і немає шаху -> ПАТ
+                                if (!isCheck) {
                                     this.showStalemate();
                                 }
                             }
@@ -2519,31 +2529,31 @@ switchTurn() {
                 const txt = document.getElementById('turnText');
                 const icon = document.getElementById('turnIcon');
                 
-                // ЗАВЖДИ показуємо індикатор, навіть якщо режим ходів вимкнено
                 ind.style.display = 'flex';
                 
                 if (!this.turnModeEnabled) {
-                    // --- РЕЖИМ РЕДАКТОРА (Жовтий) ---
                     ind.style.background = '#f1c40f'; 
                     ind.style.color = '#000';
                     ind.style.borderColor = '#f39c12';
-                    // Показуємо, чий буде хід, коли гру запустять
                     const label = this.currentTurn === 'w' ? "Білі" : "Чорні";
                     txt.innerText = `Редактор (${label})`;
                     icon.innerText = this.currentTurn === 'w' ? "♔" : "♚";
                 } else {
-                    // --- РЕЖИМ ГРИ ---
+                    // Перевіряємо довжину масиву!
+                    const wCheck = this.kingsInCheck.w && this.kingsInCheck.w.length > 0;
+                    const bCheck = this.kingsInCheck.b && this.kingsInCheck.b.length > 0;
+
                     if (this.currentTurn === 'w') {
                         ind.style.background = 'rgba(255, 255, 255, 0.95)'; 
                         ind.style.color = '#000';
-                        ind.style.borderColor = (this.kingsInCheck.w) ? 'red' : '#ccc';
-                        txt.innerText = (this.kingsInCheck.w) ? "Хід: Білі (ШАХ!)" : "Хід: Білі";
+                        ind.style.borderColor = wCheck ? 'red' : '#ccc';
+                        txt.innerText = wCheck ? "Хід: Білі (ШАХ!)" : "Хід: Білі";
                         icon.innerText = "♔";
                     } else {
                         ind.style.background = 'rgba(30, 30, 30, 0.95)'; 
                         ind.style.color = '#fff';
-                        ind.style.borderColor = (this.kingsInCheck.b) ? 'red' : '#555';
-                        txt.innerText = (this.kingsInCheck.b) ? "Хід: Чорні (ШАХ!)" : "Хід: Чорні";
+                        ind.style.borderColor = bCheck ? 'red' : '#555';
+                        txt.innerText = bCheck ? "Хід: Чорні (ШАХ!)" : "Хід: Чорні";
                         icon.innerText = "♚";
                     }
                 }
@@ -2706,7 +2716,79 @@ switchTurn() {
 
                 return false;
             }
-            updateKingCheckStatus(color) { this.kingsInCheck[color] = this.isInCheck(color) ? this.findKing(color) : null; }
+            updateKingCheckStatus(color) {
+                // Очищаємо список для поточного кольору
+                this.kingsInCheck[color] = [];
+                
+                const opponent = color === 'w' ? 'b' : 'w';
+                const kingSymbol = color === 'w' ? '♔' : '♚';
+
+                // Допоміжна функція для додавання унікальних координат
+                const addKing = (c, r) => {
+                    // Перевіряємо, чи немає вже цієї координати в списку
+                    const exists = this.kingsInCheck[color].some(k => k.c === c && k.r === r);
+                    if (!exists) this.kingsInCheck[color].push({c, r});
+                };
+
+                // 1. Перевірка Головного Короля (Центрального)
+                const mainKing = this.findKing(color);
+                if (mainKing) {
+                    // Переконуємось, що він там є
+                    const p = this.getPiece(mainKing.c, mainKing.r);
+                    if (p && p.s === kingSymbol && p.c === color) {
+                        if (this.isSquareAttacked(mainKing.c, mainKing.r, opponent)) {
+                            addKing(mainKing.c, mainKing.r);
+                        }
+                    }
+                }
+
+                // 2. Перевірка Всіх РЕАЛЬНИХ королів (які були пересунуті або поставлені вручну)
+                for (const [key, val] of this.grid) {
+                    if (val === GRID_VOID) continue;
+                    const id = val & 0xFFFF;
+                    const p = this.palette[id - 1];
+                    
+                    if (p && p.c === color && p.s === kingSymbol) {
+                        const [cStr, rStr] = key.split(',');
+                        const c = parseInt(cStr);
+                        const r = parseInt(rStr);
+                        // Якщо це не головний (ми його вже перевірили), перевіряємо атаку
+                        if (!mainKing || (c !== mainKing.c || r !== mainKing.r)) {
+                            if (this.isSquareAttacked(c, r, opponent)) {
+                                addKing(c, r);
+                            }
+                        }
+                    }
+                }
+
+                // 3. Зворотній пошук для АРМІЇ (Віртуальні королі)
+                // Ми дивимося на всіх АКТИВНИХ ворогів (в grid) і перевіряємо, чи б'ють вони в якихось королів
+                for (const [key, val] of this.grid) {
+                    if (val === GRID_VOID) continue;
+                    const id = val & 0xFFFF;
+                    const attacker = this.palette[id - 1];
+
+                    // Якщо це ворог
+                    if (attacker && attacker.c === opponent) {
+                        const [axStr, ayStr] = key.split(',');
+                        const ax = parseInt(axStr);
+                        const ay = parseInt(ayStr);
+
+                        // Генеруємо всі його атаки
+                        const moves = this.generatePotentialMoves(attacker, ax, ay);
+                        
+                        for (const m of moves) {
+                            // Дивимось, що стоїть на клітинці атаки
+                            const target = this.getPiece(m.c, m.r);
+                            
+                            // Якщо там наш король (віртуальний або реальний)
+                            if (target && target.c === color && target.s === kingSymbol) {
+                                addKing(m.c, m.r);
+                            }
+                        }
+                    }
+                }
+            }
 
             // --- НОВА ФУНКЦІЯ: ПЕРЕВІРКА НАЯВНОСТІ ОБОВ'ЯЗКОВОГО БОЮ ---
             hasAnyCaptureMoves(color) {
@@ -3697,13 +3779,23 @@ onMouseUp(e) {
                 }
 
                 // --- ПІДСВІТКА (Без змін, тільки перевірка на видимість) ---
+                // --- ПІДСВІТКА (Оновлена для багатьох королів) ---
                 if (this.rulesEnabled && cs > 2) {
                     for (const color of ['w', 'b']) {
-                        if (this.kingsInCheck[color]) {
-                            const k = this.kingsInCheck[color];
-                            if (k.c >= startCol && k.c <= endCol && k.r >= startRow && k.r <= endRow) {
-                                ctx.fillStyle = (this.gameOver && this.currentTurn === color) ? this.colors.mateHighlight : this.colors.checkHighlight;
-                                ctx.fillRect(bx + k.c * cs, by + k.r * cs, cs, cs);
+                        // Перевіряємо, чи є масив і чи він не порожній
+                        if (this.kingsInCheck[color] && this.kingsInCheck[color].length > 0) {
+                            
+                            // Проходимо по всіх атакованих королях
+                            for (const k of this.kingsInCheck[color]) {
+                                // Малюємо тільки якщо в межах екрану (оптимізація)
+                                if (k.c >= startCol && k.c <= endCol && k.r >= startRow && k.r <= endRow) {
+                                    // Вибираємо колір: якщо це мат і хід цього кольору - фіолетовий, інакше червоний
+                                    ctx.fillStyle = (this.gameOver && this.currentTurn === color) 
+                                        ? this.colors.mateHighlight 
+                                        : this.colors.checkHighlight;
+                                    
+                                    ctx.fillRect(bx + k.c * cs, by + k.r * cs, cs, cs);
+                                }
                             }
                         }
                     }
