@@ -4152,232 +4152,248 @@ if (this.highlightedSquares.length > 0) {
             }
 
             calculateVirtualCounts(width, rows, type, props) {
-    let counts = new Map();
-    const add = (s, n) => {
-        if (typeof n === 'number') n = BigInt(Math.floor(n));
-        let current = counts.get(s) || 0n;
-        counts.set(s, current + n);
-    };
+                let counts = new Map();
+                const add = (s, n) => {
+                    // Гарантуємо, що n це BigInt
+                    let bn;
+                    try { bn = BigInt(n); } catch(e) { bn = 0n; }
+                    
+                    let current = counts.get(s) || 0n;
+                    counts.set(s, current + bn);
+                };
 
-    const widthBI = BigInt(width);
-    const rowsBI = BigInt(rows);
+                // Конвертуємо вхідні дані у BigInt для безпечної математики
+                const widthBI = BigInt(width);
+                const rowsBI = BigInt(rows);
 
-    // --- ШАШКИ ---
-    if (type === 'checkers') {
-        // (Ширина * Кількість рядів однієї команди) / 2 = Кількість шашок одного кольору
-        let total = (widthBI * rowsBI) / 2n;
-        add('checker', total);
-        return counts;
-    }
+                // --- ШАШКИ ---
+                if (type === 'checkers') {
+                    // (Ширина * Кількість рядів однієї команди) / 2
+                    let total = (widthBI * rowsBI) / 2n;
+                    add('checker', total);
+                    return counts;
+                }
 
-    // --- АРМІЯ ---
-    if (type === 'army') {
-        let officerRows = BigInt(Math.floor(rows / 2));
-        let pawnRows = rowsBI - officerRows;
-        add('pawn', widthBI * pawnRows);
+                // --- АРМІЯ ---
+                if (type === 'army') {
+                    let officerRows = rowsBI / 2n; // BigInt ділення автоматично округлює вниз
+                    let pawnRows = rowsBI - officerRows;
+                    
+                    add('pawn', widthBI * pawnRows);
 
-        let fullSets = widthBI / 8n;
-        add('rook', fullSets * 2n * officerRows);
-        add('knight', fullSets * 2n * officerRows);
-        add('bishop', fullSets * 2n * officerRows);
-        add('queen', fullSets * 1n * officerRows);
-        add('king', fullSets * 1n * officerRows);
-        
-        // Додаємо залишок (якщо ширина не кратна 8)
-        const remainder = Number(widthBI % 8n);
-        const pattern = ['rook', 'knight', 'bishop', 'queen', 'king', 'bishop', 'knight', 'rook'];
-        for(let i=0; i<remainder; i++) {
-            add(pattern[i], officerRows);
-        }
-        return counts;
-    }
+                    let fullSets = widthBI / 8n;
+                    add('rook', fullSets * 2n * officerRows);
+                    add('knight', fullSets * 2n * officerRows);
+                    add('bishop', fullSets * 2n * officerRows);
+                    add('queen', fullSets * 1n * officerRows);
+                    add('king', fullSets * 1n * officerRows);
+                    
+                    // Залишок
+                    const remainder = Number(widthBI % 8n); // Залишок завжди малий, можна в Number
+                    const pattern = ['rook', 'knight', 'bishop', 'queen', 'king', 'bishop', 'knight', 'rook'];
+                    for(let i=0; i<remainder; i++) {
+                        add(pattern[i], officerRows);
+                    }
+                    return counts;
+                }
 
-    // --- КЛАСИКА та МІКС ---
-    add('pawn', widthBI); // Пішаки завжди повний ряд
+                // --- КЛАСИКА та МІКС ---
+                add('pawn', widthBI); // 1 ряд пішаків
 
-    let officerRowsVal = rows - 1; 
-    if (officerRowsVal < 1) officerRowsVal = 1;
-    const officerRowsBI = BigInt(officerRowsVal);
-    const totalOfficers = widthBI * officerRowsBI;
+                // Офіцерів = (Всього рядів - 1 ряд пішаків)
+                let officerRowsBI = rowsBI - 1n; 
+                if (officerRowsBI < 1n) officerRowsBI = 1n;
+                
+                const totalOfficers = widthBI * officerRowsBI;
 
-    if (type === 'classic') {
-        const perType = totalOfficers / 4n;
-        const rem = totalOfficers % 4n;
-        add('rook', perType + (rem > 0n ? 1n : 0n));
-        add('knight', perType + (rem > 1n ? 1n : 0n));
-        add('bishop', perType + (rem > 2n ? 1n : 0n));
-        add('queen', perType); // В новому генераторі порядок фіксований, тому залишок розподіляємо чітко
-    } 
-    else if (type === 'fantasy') {
-        let mixPercent = 40; 
-        if (props && props.mix !== undefined) mixPercent = props.mix;
-        const mixBI = BigInt(Math.floor(mixPercent));
-        
-        // Оскільки генератор використовує (rnd < mix), це статистичний розподіл.
-        // Але на великих числах він стабільний.
-        const fantasyTotal = (totalOfficers * mixBI) / 100n;
-        const classicTotal = totalOfficers - fantasyTotal;
-        
-        // Класика
-        const classPerType = classicTotal / 4n;
-        add('rook', classPerType);
-        add('knight', classPerType);
-        add('bishop', classPerType);
-        add('queen', classPerType + (classicTotal % 4n));
+                if (type === 'classic') {
+                    const perType = totalOfficers / 4n;
+                    const rem = Number(totalOfficers % 4n); // 0..3
+                    
+                    // Врахування залишку (в новому генераторі порядок фіксований)
+                    // Патерн: Rook, Knight, Bishop, Queen (повторюється)
+                    add('rook', perType + (rem > 0 ? 1n : 0n));
+                    add('knight', perType + (rem > 1 ? 1n : 0n));
+                    add('bishop', perType + (rem > 2 ? 1n : 0n));
+                    add('queen', perType); 
+                    // Король завжди 1 по центру (або замінює одного ферзя в статистиці, тут спрощено)
+                    // В класиці зазвичай 1 король на армію, але на гігантській дошці це "класичний мікс"
+                    // Тому додамо 1 короля окремо, якщо це справді велика дошка, або замінимо 1 ферзя.
+                    // Для чистоти статистики:
+                    add('king', 1n);
+                } 
+                else if (type === 'fantasy') {
+                    let mixPercent = 40n; 
+                    if (props && props.mix !== undefined) mixPercent = BigInt(Math.floor(props.mix));
+                    
+                    const fantasyTotal = (totalOfficers * mixPercent) / 100n;
+                    const classicTotal = totalOfficers - fantasyTotal;
+                    
+                    // Класична частина
+                    const classPerType = classicTotal / 4n;
+                    add('rook', classPerType);
+                    add('knight', classPerType);
+                    add('bishop', classPerType);
+                    add('queen', classPerType); // Спрощено без залишку для міксу
 
-        // Фентезі (Тепер розподіляємо ІДЕАЛЬНО РІВНО, бо генератор циклічний)
-        const fList = FANTASY_LIST;
-        const fLen = BigInt(fList.length);
-        
-        if (fLen > 0n) {
-            const fanPerType = fantasyTotal / fLen;
-            const fanRem = Number(fantasyTotal % fLen); // Залишок
-            
-            fList.forEach((symbol, index) => {
-                let count = fanPerType;
-                if (index < fanRem) count++; // Першим у списку додаємо +1 із залишку
-                if (count > 0n) add(symbol, count);
-            });
-        }
-    }
-    return counts;
-}
-       updatePieceCounts() {
-    let stats = { w: new Map(), b: new Map() };
-    
-    const modify = (color, symbol, delta) => {
-        let map = stats[color];
-        let current = map.get(symbol) || 0n;
-        let next = current + BigInt(delta);
-        if (next <= 0n) map.delete(symbol);
-        else map.set(symbol, next);
-    };
-
-    let bs = this.displayBoardSize || BigInt(this.boardSize);
-
-    // --- 1. БАЗОВИЙ МАТЕМАТИЧНИЙ РОЗРАХУНОК (Всі режими) ---
-    if (this.virtualGen) {
-        let armyRows = 0;
-        if (this.virtualGen === 'checkers') {
-            armyRows = Math.floor(this.boardSize * (this.virtualProps.percent / 100));
-        } else if (this.virtualGen === 'chess960') {
-            armyRows = 2;
-        } else {
-            let percent = this.virtualProps.percent;
-            armyRows = Math.floor(this.boardSize * (percent / 100));
-            if (armyRows < 2) armyRows = 2;
-        }
-
-        // Рахуємо ідеальну початкову кількість
-        const baseCounts = this.calculateVirtualCounts(this.boardSize, armyRows, this.virtualGen, this.virtualProps);
-
-        const classicMirror = {
-            'rook': ['♖', '♜'], 'knight': ['♘', '♞'], 'bishop': ['♗', '♝'],
-            'queen': ['♕', '♛'], 'king': ['♔', '♚'], 'pawn': ['♙', '♟'],
-            'checker': ['⛀', '⛂']
-        };
-
-        baseCounts.forEach((count, key) => {
-            if (classicMirror[key]) {
-                modify('w', classicMirror[key][0], count);
-                modify('b', classicMirror[key][1], count);
-            } else {
-                modify('w', key, count);
-                modify('b', key, count);
+                    // Фентезі частина
+                    const fList = FANTASY_LIST;
+                    const fLen = BigInt(fList.length);
+                    
+                    if (fLen > 0n) {
+                        const fanPerType = fantasyTotal / fLen;
+                        const fanRem = Number(fantasyTotal % fLen);
+                        
+                        fList.forEach((symbol, index) => {
+                            let count = fanPerType;
+                            if (index < fanRem) count++; 
+                            if (count > 0n) add(symbol, count);
+                        });
+                    }
+                    // Король
+                    add('king', 1n);
+                }
+                return counts;
             }
-        });
-        
-        // МИ ПРИБРАЛИ БЛОК "FIX FOR SMALL BOARDS"
-        // Тепер логіка єдина і точна для будь-якого розміру.
-    }
 
-    // --- 2. ОБРОБКА ЗМІН (GRID) - УНІВЕРСАЛЬНА ---
-    for (const [key, val] of this.grid) {
-        const comma = key.indexOf(',');
-        const c = parseInt(key.substring(0, comma));
-        const r = parseInt(key.substring(comma + 1));
+      updatePieceCounts() {
+                let stats = { w: new Map(), b: new Map() };
+                
+                const modify = (color, symbol, delta) => {
+                    let map = stats[color];
+                    let current = map.get(symbol) || 0n;
+                    let next = current + BigInt(delta);
+                    if (next <= 0n) map.delete(symbol);
+                    else map.set(symbol, next);
+                };
 
-        // А. ВІДНІМАЄМО ВІРТУАЛЬНУ ФІГУРУ (Завжди, якщо режим генерації активний)
-        // Раніше це працювало тільки для > 500, тепер для всіх.
-        // Це виправляє глюк, коли фігура рахувалась двічі.
-        if (this.virtualGen) { 
-            const vp = this.getVirtualPiece(c, r);
-            if (vp) modify(vp.c, vp.s, -1);
-        } 
+                // 1. Беремо РЕАЛЬНИЙ розмір (BigInt)
+                let bs = this.displayBoardSize || BigInt(this.boardSize);
 
-        // Б. ДОДАЄМО РЕАЛЬНУ ФІГУРУ (Якщо вона не видалена)
-        if (val !== GRID_VOID) {
-            const id = val & 0xFFFF;
-            const p = this.palette[id - 1];
-            if (p) modify(p.c, p.s, 1);
-        }
-    }
+                // --- 1. БАЗОВИЙ МАТЕМАТИЧНИЙ РОЗРАХУНОК ---
+                if (this.virtualGen) {
+                    // Розраховуємо кількість рядів використовуючи BigInt, щоб не втратити точність
+                    let armyRowsBI = 0n;
+                    
+                    if (this.virtualGen === 'checkers') {
+                        let percentBI = BigInt(Math.floor(this.virtualProps.percent));
+                        armyRowsBI = (bs * percentBI) / 100n;
+                    } else if (this.virtualGen === 'chess960') {
+                        armyRowsBI = 2n;
+                    } else {
+                        let percentBI = BigInt(Math.floor(this.virtualProps.percent));
+                        armyRowsBI = (bs * percentBI) / 100n;
+                        if (armyRowsBI < 2n) armyRowsBI = 2n;
+                    }
 
-    // --- 3. ОБРОБКА ПОБИТИХ (В процесі анімації або мульти-бою) ---
-    if (this.pendingCaptures.length > 0) {
-        this.pendingCaptures.forEach(pos => {
-            // Тут getPiece поверне те, що зараз на дошці (віртуальне або реальне)
-            const victim = this.getPiece(pos.x, pos.y);
-            if (victim) modify(victim.c, victim.s, -1);
-        });
-    }
+                    // Передаємо в калькулятор BS (гігантське число) і armyRowsBI (гігантське число)
+                    const baseCounts = this.calculateVirtualCounts(bs, armyRowsBI, this.virtualGen, this.virtualProps);
 
-    // --- 4. РЕНДЕР HTML (Ваш стандартний код) ---
-    const totalSquaresBig = bs * bs;
-    let sLen = totalSquaresBig.toString().length - 1; 
+                    // Розподіляємо по кольорах
+                    const classicMirror = {
+                        'rook': ['♖', '♜'], 'knight': ['♘', '♞'], 'bishop': ['♗', '♝'],
+                        'queen': ['♕', '♛'], 'king': ['♔', '♚'], 'pawn': ['♙', '♟'],
+                        'checker': ['⛀', '⛂']
+                    };
 
-    let wTotal = 0n, bTotal = 0n;
-    for (let v of stats.w.values()) wTotal += v;
-    for (let v of stats.b.values()) bTotal += v;
+                    baseCounts.forEach((count, key) => {
+                        if (classicMirror[key]) {
+                            modify('w', classicMirror[key][0], count);
+                            modify('b', classicMirror[key][1], count);
+                        } else {
+                            // Для фентезі фігур (припускаємо симетрію, тому ділимо на 2 для кожного кольору,
+                            // або дублюємо, якщо функція повернула кількість на ОДНУ сторону. 
+                            // calculateVirtualCounts повертає кількість для ОДНІЄЇ армії).
+                            modify('w', key, count);
+                            modify('b', key, count);
+                        }
+                    });
+                }
 
-    const fmt = (n) => n.toLocaleString('uk-UA');
+                // --- 2. ОБРОБКА ЗМІН (GRID) ---
+                for (const [key, val] of this.grid) {
+                    const comma = key.indexOf(',');
+                    const c = parseInt(key.substring(0, comma));
+                    const r = parseInt(key.substring(comma + 1));
 
-    const generateList = (map) => {
-        let items = [];
-        const priority = ['♔','♚','♕','♛','⛁','⛃','♖','♜','♗','♝','♘','♞','⛀','⛂','♙','♟'];
-        let sortedKeys = [...map.keys()].sort((a,b) => {
-            let idxA = priority.indexOf(a);
-            let idxB = priority.indexOf(b);
-            if (idxA === -1) idxA = 100;
-            if (idxB === -1) idxB = 100;
-            return idxA - idxB;
-        });
+                    // А. ВІДНІМАЄМО ВІРТУАЛЬНУ ФІГУРУ
+                    if (this.virtualGen) { 
+                        const vp = this.getVirtualPiece(c, r);
+                        if (vp) modify(vp.c, vp.s, -1);
+                    } 
 
-        sortedKeys.forEach(s => {
-            const count = map.get(s);
-            const name = this.getPieceName(s);
-            if (count > 0n) items.push(`${s} ${name}: <b>${fmt(count)}</b>`);
-        });
-        return items.join('<br>');
-    };
+                    // Б. ДОДАЄМО РЕАЛЬНУ ФІГУРУ
+                    if (val !== GRID_VOID) {
+                        const id = val & 0xFFFF;
+                        const p = this.palette[id - 1];
+                        if (p) modify(p.c, p.s, 1);
+                    }
+                }
 
-    const wList = generateList(stats.w);
-    const bList = generateList(stats.b);
+                // --- 3. ОБРОБКА ПОБИТИХ ---
+                if (this.pendingCaptures.length > 0) {
+                    this.pendingCaptures.forEach(pos => {
+                        const victim = this.getPiece(pos.x, pos.y);
+                        if (victim) modify(victim.c, victim.s, -1);
+                    });
+                }
 
-    const html = `
-        <div style="margin-bottom: 6px; border-bottom: 1px solid rgba(0,0,0,0.1); padding-bottom: 6px; font-size: 13px; color: #333;">
-                📐 Площа: <b>${this.formatCount(totalSquaresBig)}</b> (10<sup>${sLen}</sup>)
-                <div style="font-size:10px; color:#555; margin-top:2px;">Точно: ${fmt(totalSquaresBig)} клітинок</div>
-        </div>
-        <div style="margin-bottom: 6px; font-size: 13px; color: #333;">
-            Всього фігур: <b>${this.formatCount(wTotal + bTotal)}</b>
-            <div style="font-size:10px; color:#777;">Точно: ${fmt(wTotal + bTotal)}</div>
-        </div>
-        
-        <div style="display: flex; gap: 10px; font-size: 11px; max-height: 200px; overflow-y: auto;">
-            <div style="flex: 1; background: rgba(255,255,255,0.5); padding: 4px; border-radius: 4px;">
-                <div style="color:#27ae60; font-weight:bold; border-bottom: 1px solid #ccc; margin-bottom: 2px;">Білі (${this.formatCount(wTotal)})</div>
-                ${wList || 'Немає'}
-            </div>
-            <div style="flex: 1; background: rgba(0,0,0,0.05); padding: 4px; border-radius: 4px;">
-                <div style="color:#c0392b; font-weight:bold; border-bottom: 1px solid #ccc; margin-bottom: 2px;">Чорні (${this.formatCount(bTotal)})</div>
-                ${bList || 'Немає'}
-            </div>
-        </div>
-    `;
-    const countEl = document.getElementById('count');
-    if (countEl) countEl.innerHTML = html;
-}
+                // --- 4. РЕНДЕР HTML ---
+                const totalSquaresBig = bs * bs;
+                let sLen = totalSquaresBig.toString().length - 1; 
+
+                let wTotal = 0n, bTotal = 0n;
+                for (let v of stats.w.values()) wTotal += v;
+                for (let v of stats.b.values()) bTotal += v;
+
+                const fmt = (n) => n.toLocaleString('uk-UA');
+
+                const generateList = (map) => {
+                    let items = [];
+                    const priority = ['♔','♚','♕','♛','⛁','⛃','♖','♜','♗','♝','♘','♞','⛀','⛂','♙','♟'];
+                    let sortedKeys = [...map.keys()].sort((a,b) => {
+                        let idxA = priority.indexOf(a);
+                        let idxB = priority.indexOf(b);
+                        if (idxA === -1) idxA = 100;
+                        if (idxB === -1) idxB = 100;
+                        return idxA - idxB;
+                    });
+
+                    sortedKeys.forEach(s => {
+                        const count = map.get(s);
+                        const name = this.getPieceName(s);
+                        if (count > 0n) items.push(`${s} ${name}: <b>${fmt(count)}</b>`);
+                    });
+                    return items.join('<br>');
+                };
+
+                const wList = generateList(stats.w);
+                const bList = generateList(stats.b);
+
+                const html = `
+                    <div style="margin-bottom: 6px; border-bottom: 1px solid rgba(0,0,0,0.1); padding-bottom: 6px; font-size: 13px; color: #333;">
+                            📐 Площа: <b>${this.formatCount(totalSquaresBig)}</b> (10<sup>${sLen}</sup>)
+                            <div style="font-size:10px; color:#555; margin-top:2px;">Точно: ${fmt(totalSquaresBig)} клітинок</div>
+                    </div>
+                    <div style="margin-bottom: 6px; font-size: 13px; color: #333;">
+                        Всього фігур: <b>${this.formatCount(wTotal + bTotal)}</b>
+                        <div style="font-size:10px; color:#777;">Точно: ${fmt(wTotal + bTotal)}</div>
+                    </div>
+                    
+                    <div style="display: flex; gap: 10px; font-size: 11px; max-height: 200px; overflow-y: auto;">
+                        <div style="flex: 1; background: rgba(255,255,255,0.5); padding: 4px; border-radius: 4px;">
+                            <div style="color:#27ae60; font-weight:bold; border-bottom: 1px solid #ccc; margin-bottom: 2px;">Білі (${this.formatCount(wTotal)})</div>
+                            ${wList || 'Немає'}
+                        </div>
+                        <div style="flex: 1; background: rgba(0,0,0,0.05); padding: 4px; border-radius: 4px;">
+                            <div style="color:#c0392b; font-weight:bold; border-bottom: 1px solid #ccc; margin-bottom: 2px;">Чорні (${this.formatCount(bTotal)})</div>
+                            ${bList || 'Немає'}
+                        </div>
+                    </div>
+                `;
+                const countEl = document.getElementById('count');
+                if (countEl) countEl.innerHTML = html;
+            }
             updateUI() {
                 // Викликаємо нашу нову функцію підрахунку
                 this.updatePieceCounts();
