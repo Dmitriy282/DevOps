@@ -788,24 +788,36 @@ const FANTASY_LIST = [
                 const isWhite = piece.c === 'w';
 
                 // --- 1. Слайдери (Тура, Слон, Ферзь) ---
+                // --- 2. ПРОМЕНІ (Тури, Слони, Ферзі + MEGA SLIDERS) ---
+                // --- 2. ПРОМЕНІ (Тури, Слони, Ферзі + MEGA SLIDERS) ---
+                // --- 2. ПРОМЕНІ (Тури, Слони, Ферзі + MEGA SLIDERS) ---
+                // --- ВИПРАВЛЕННЯ (ВСТАВИТИ ЦЕ В ДРУГУ ФУНКЦІЮ calculateHighlights) ---
                 const castRay = (dx, dy, maxLimit = this.boardSize) => {
-                    const end = this.findRayEnd(cx, cy, dx, dy, maxLimit);
+                    let x = cx;
+                    let y = cy;
                     
-                    // Довжина променя (математична дистанція)
-                    let dist = Math.max(Math.abs(end.x - cx), Math.abs(end.y - cy));
+                    // Обмежувач безпеки
+                    const limit = Math.min(maxLimit, this.boardSize); 
 
-                    // Якщо влучили, скорочуємо лінію на 1, щоб не малювати НА фігурі
-                    if (end.hit || end.ally) dist--;
+                    for (let i = 0; i < limit; i++) {
+                        x += dx;
+                        y += dy;
 
-                    if (dist > 0) {
-                        this.highlightedMoves.push({
-                            type: 'ray', cx: cx, cy: cy, dx: dx, dy: dy, len: dist
-                        });
-                    }
+                        // Перевірка меж на КОЖНОМУ кроці - це зупинить точки за межами дошки
+                        if (x < 0 || x >= this.boardSize || y < 0 || y >= this.boardSize) {
+                            break; 
+                        }
 
-                    // Червона крапка для атаки
-                    if (end.hit && !end.ally) {
-                        this.highlightedMoves.push({ type: 'point', c: end.x, r: end.y, capture: true });
+                        const target = this.getPiece(x, y);
+
+                        if (!target) {
+                            tryAddMove(x, y, false);
+                        } else {
+                            if (target.c !== piece.c) {
+                                tryAddMove(x, y, true);
+                            }
+                            break; // Вперлися в фігуру - стоп
+                        }
                     }
                 };
 
@@ -3200,11 +3212,52 @@ hasAnyLegalMoves(color) {
                         const dirs = this._resolveDirs(comp.d || comp.dirs);
                         const limit = comp.max || this.boardSize;
                         const moveType = comp.t || def.t;
+                        
                         for (const d of dirs) {
                             let dirX = d[0], dirY = d[1];
                             if (!isWhite && FLIP_Y_LIST.includes(type)) dirY = -dirY;
-                            if (moveType === 'slide' || moveType === 'slide_jump') castRay(dirX, dirY, limit);
-                            else { let mul = comp.mul || 1; checkJump(dirX * mul, dirY * mul); }
+
+                            if (moveType === 'slide') {
+                                // Для звичайних слайдерів (Ракета, Маг) залишаємо castRay - він тут працює добре
+                                castRay(dirX, dirY, limit);
+                            } 
+                            else if (moveType === 'slide_jump') {
+                                // --- ВИПРАВЛЕННЯ ДЛЯ ПАВУКА ТА ВЕРШНИКА ---
+                                // Ми не використовуємо castRay, бо він неправильно рахує вектори (1,2).
+                                // Робимо простий цикл "стрибків".
+                                
+                                let cx_jump = cx;
+                                let cy_jump = cy;
+                                // Безпечний ліміт кроків
+                                const safeLimit = Math.min(limit, this.boardSize);
+
+                                for (let k = 0; k < safeLimit; k++) {
+                                    cx_jump += dirX;
+                                    cy_jump += dirY;
+
+                                    // 1. Перевірка меж (щоб не малювати за екраном)
+                                    if (cx_jump < 0 || cx_jump >= this.boardSize || cy_jump < 0 || cy_jump >= this.boardSize) break;
+
+                                    const target = this.getPiece(cx_jump, cy_jump);
+                                    
+                                    if (!target) {
+                                        // Пусто -> додаємо точку
+                                        tryAddMove(cx_jump, cy_jump, false);
+                                    } else {
+                                        // Вперлися в фігуру
+                                        if (target.c !== piece.c) {
+                                            // Ворог -> додаємо атаку
+                                            tryAddMove(cx_jump, cy_jump, true);
+                                        }
+                                        break; // Далі не йдемо
+                                    }
+                                }
+                            }
+                            else { 
+                                // Для звичайних стрибків (step/jump)
+                                let mul = comp.mul || 1; 
+                                checkJump(dirX * mul, dirY * mul); 
+                            }
                         }
                      };
                      if (def.t === 'complex') def.comps.forEach(c => processComp(c)); else processComp(def);
