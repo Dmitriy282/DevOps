@@ -3013,7 +3013,7 @@ hasAnyLegalMoves(color) {
                     let steps = 0;
 
                     // Використовуємо збільшений ліміт
-                    const maxSteps = Math.min(this.boardSize, SAFE_LIMIT);
+                    const maxSteps = this.boardSize;
 
                     while (x >= 0 && x < this.boardSize && y >= 0 && y < this.boardSize && steps < maxSteps) {
                         if (bounds) {
@@ -3205,7 +3205,7 @@ hasAnyLegalMoves(color) {
                     // Якщо дошка 1 млрд, обмежуємо до 100 000, щоб не зависло намертво.
                     const SAFE_MAX = (this.boardSize <= 100000) ? this.boardSize + 100 : 100000;
                     
-                    for (let i = 1; i <= maxLimit && i < SAFE_MAX; i++) {
+                    for (let i = 1; i <= maxLimit; i++) {
                         x += dx;
                         y += dy;
 
