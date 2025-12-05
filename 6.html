@@ -780,93 +780,111 @@ const FANTASY_LIST = [
                 return { x: finalX, y: finalY, hit: hitGrid || !!finalTarget, ally: isAlly };
             }
 
-            calculateHighlights(piece, cx, cy) {
+calculateHighlights(piece, cx, cy) {
                 if (!this.rulesEnabled) return;
                 
                 this.highlightedMoves = [];
                 const type = piece.s;
                 const isWhite = piece.c === 'w';
 
-                // --- 1. Слайдери (Тура, Слон, Ферзь) ---
-                // --- 2. ПРОМЕНІ (Тури, Слони, Ферзі + MEGA SLIDERS) ---
-                // --- 2. ПРОМЕНІ (Тури, Слони, Ферзі + MEGA SLIDERS) ---
-                // --- 2. ПРОМЕНІ (Тури, Слони, Ферзі + MEGA SLIDERS) ---
-                // --- ВИПРАВЛЕННЯ (ВСТАВИТИ ЦЕ В ДРУГУ ФУНКЦІЮ calculateHighlights) ---
+                // --- 1. ОПТИМІЗАЦІЯ ЕКРАНУ (Viewport Culling) ---
+                const cs = this.cellSize * this.camera.zoom;
+                const width = this.canvas.width; 
+                const height = this.canvas.height;
+                
+                const viewMinC = Math.floor((-this.camera.x) / cs) - 2;
+                const viewMaxC = Math.floor((width - this.camera.x) / cs) + 2;
+                const viewMinR = Math.floor((-this.camera.y) / cs) - 2;
+                const viewMaxR = Math.floor((height - this.camera.y) / cs) + 2;
+
+                const isVisible = (c, r) => {
+                    return c >= viewMinC && c <= viewMaxC && r >= viewMinR && r <= viewMaxR;
+                };
+
+                // --- 2. РЕЖИМ ПРОДУКТИВНОСТІ ---
+                // Якщо дошка гігантська (>100), ми вимикаємо важку перевірку на Шах для кожного пікселя.
+                // Ми перевіримо легальність ходу тільки коли гравець відпустить фігуру.
+                const performHeavySafetyCheck = (this.boardSize <= 100);
+
+                const tryAddMove = (c, r, isCapture) => {
+                    if (performHeavySafetyCheck) {
+                        // Повна перевірка (для малих дошок)
+                        if (this.simulateMoveAndCheckSafety(piece, cx, cy, c, r)) {
+                            this.highlightedMoves.push({ type: 'point', c: c, r: r, capture: isCapture });
+                        }
+                    } else {
+                        // Швидка перевірка (тільки геометрія)
+                        this.highlightedMoves.push({ type: 'point', c: c, r: r, capture: isCapture });
+                    }
+                };
+
+                // --- ШАШКИ ---
+                if (this.checkersSymbols.has(type)) {
+                    let moves = this.generatePotentialMoves(piece, cx, cy);
+                    if (this.hasAnyCaptureMoves(piece.c)) moves = moves.filter(m => m.isCapture);
+                    moves.forEach(m => {
+                        if (isVisible(m.c, m.r) || m.isCapture) {
+                            this.highlightedMoves.push({ type: 'point', c: m.c, r: m.r, capture: !!m.isCapture });
+                        }
+                    });
+                    return;
+                }
+
+                // --- ПРОМЕНІ (Тури, Слони...) ---
                 const castRay = (dx, dy, maxLimit = this.boardSize) => {
                     let x = cx;
                     let y = cy;
-                    
-                    // Обмежувач безпеки
-                    const limit = Math.min(maxLimit, this.boardSize); 
+                    // Ліміт циклу для безпеки
+                    const LOOP_LIMIT = 3000; 
 
-                    for (let i = 0; i < limit; i++) {
+                    for (let i = 1; i <= maxLimit && i < LOOP_LIMIT; i++) {
                         x += dx;
                         y += dy;
 
-                        // Перевірка меж на КОЖНОМУ кроці - це зупинить точки за межами дошки
-                        if (x < 0 || x >= this.boardSize || y < 0 || y >= this.boardSize) {
-                            break; 
+                        // Перевірка меж дошки
+                        if (x < 0 || x >= this.boardSize || y < 0 || y >= this.boardSize) break;
+
+                        // Перевірка меж екрану (Early Exit)
+                        const visible = isVisible(x, y);
+                        
+                        // Якщо ми вийшли далеко за межі екрану - стоп
+                        if (!visible) {
+                            if (x < viewMinC - 5 || x > viewMaxC + 5 || y < viewMinR - 5 || y > viewMaxR + 5) break; 
                         }
 
                         const target = this.getPiece(x, y);
 
                         if (!target) {
-                            tryAddMove(x, y, false);
+                            if (visible) tryAddMove(x, y, false);
                         } else {
                             if (target.c !== piece.c) {
-                                tryAddMove(x, y, true);
+                                // Атаку додаємо навіть якщо вона трохи за екраном (для логіки)
+                                if (visible || isVisible(x - dx, y - dy)) tryAddMove(x, y, true);
                             }
-                            break; // Вперлися в фігуру - стоп
+                            break; 
                         }
                     }
                 };
 
-                // --- 2. Стрибуни (Кінь, Король) ---
-                // ... (початок методу calculateHighlights) ...
-
-                // --- 2. Стрибуни (Кінь, Король) ---
                 const checkJump = (dx, dy) => {
                     const tx = cx + dx; const ty = cy + dy;
+                    if (!isVisible(tx, ty)) return; // Оптимізація
                     if (tx >= 0 && tx < this.boardSize && ty >= 0 && ty < this.boardSize) {
                         const target = this.getPiece(tx, ty);
-                        if (!target) {
-                             this.highlightedMoves.push({ type: 'point', c: tx, r: ty });
-                        } else if (target.c !== piece.c) {
-                             this.highlightedMoves.push({ type: 'point', c: tx, r: ty, capture: true });
+                        if (!target || target.c !== piece.c) {
+                            tryAddMove(tx, ty, !!target);
                         }
                     }
                 };
 
-                // ... (код для шашок і слайдерів) ...
+                // Виклик логіки для типів фігур
+                if (['♖','♜','♕','♛'].includes(type)) { castRay(1,0); castRay(-1,0); castRay(0,1); castRay(0,-1); }
+                if (['♗','♝','♕','♛'].includes(type)) { castRay(1,1); castRay(-1,1); castRay(1,-1); castRay(-1,-1); }
                 if (['♘','♞'].includes(type)) { [[1,2],[1,-2],[-1,2],[-1,-2],[2,1],[2,-1],[-2,1],[-2,-1]].forEach(d => checkJump(d[0], d[1])); }
-                
-                // --- ВИПРАВЛЕННЯ ДЛЯ КОРОЛЯ (Прибираємо checkJump, додаємо перевірку атаки) ---
                 if (['♔','♚'].includes(type)) { 
-                    for(let i=-1; i<=1; i++) {
-                        for(let j=-1; j<=1; j++) {
-                            if(i===0 && j===0) continue;
-                            const tx = cx + i; 
-                            const ty = cy + j;
-                            
-                            if (tx >= 0 && tx < this.boardSize && ty >= 0 && ty < this.boardSize) {
-                                const target = this.getPiece(tx, ty);
-                                if (!target || target.c !== piece.c) {
-                                    // Перевіряємо, чи хід безпечний (не під шах)
-                                    if (this.rulesEnabled) {
-                                        if (this.simulateMoveAndCheckSafety(piece, cx, cy, tx, ty)) {
-                                            this.highlightedMoves.push({ type: 'point', c: tx, r: ty, capture: !!target });
-                                        }
-                                    } else {
-                                        this.highlightedMoves.push({ type: 'point', c: tx, r: ty, capture: !!target });
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    for(let i=-1; i<=1; i++) for(let j=-1; j<=1; j++) { if(i||j) checkJump(i, j); }
                 }
-                // -----------------------------------------------------------------------------
 
-               
                 if (megaDefs[type]) {
                      const def = megaDefs[type];
                      const FLIP_Y_LIST = ['🚀','⚓','🏹','🎣','😺','🐗','🌊','🗡️','📜'];
@@ -877,42 +895,48 @@ const FANTASY_LIST = [
                         for (const d of dirs) {
                             let dirX = d[0], dirY = d[1];
                             if (!isWhite && FLIP_Y_LIST.includes(type)) dirY = -dirY;
-                            if (moveType === 'slide' || moveType === 'slide_jump') castRay(dirX, dirY, limit);
+                            if (moveType === 'slide') castRay(dirX, dirY, limit);
+                            else if (moveType === 'slide_jump') {
+                                // Для вершників і павуків теж додаємо ліміт екрану
+                                let cx_j = cx, cy_j = cy;
+                                for(let k=0; k<Math.min(limit, 3000); k++) {
+                                    cx_j += dirX; cy_j += dirY;
+                                    if (cx_j < 0 || cx_j >= this.boardSize || cy_j < 0 || cy_j >= this.boardSize) break;
+                                    if (cx_j < viewMinC - 5 || cx_j > viewMaxC + 5 || cy_j < viewMinR - 5 || cy_j > viewMaxR + 5) break;
+                                    
+                                    const vis = isVisible(cx_j, cy_j);
+                                    const t = this.getPiece(cx_j, cy_j);
+                                    if(!t) { if(vis) tryAddMove(cx_j, cy_j, false); }
+                                    else { if(t.c !== piece.c && vis) tryAddMove(cx_j, cy_j, true); break; }
+                                }
+                            }
                             else { let mul = comp.mul || 1; checkJump(dirX * mul, dirY * mul); }
                         }
                      };
                      if (def.t === 'complex') def.comps.forEach(c => processComp(c)); else processComp(def);
                 }
 
-                // --- ПІШАКИ (Сувора перевірка) ---
                 if (['♙','♟'].includes(type)) {
                     const dir = isWhite ? -1 : 1;
-                    
-                    // 1. Вперед на 1 (якщо пусто)
-                    const fwd1 = this.getPiece(cx, cy + dir);
-                    if (!fwd1) {
-                        this.highlightedMoves.push({ type: 'point', c: cx, r: cy + dir });
-                        
-                        // 2. Вперед на 2 (якщо не ходив і пусто)
-                        if (!piece.hasMoved) {
-                            const fwd2 = this.getPiece(cx, cy + dir * 2);
-                            if (!fwd2) {
-                                this.highlightedMoves.push({ type: 'point', c: cx, r: cy + dir * 2 });
+                    if (isVisible(cx, cy+dir) || isVisible(cx, cy+dir*2)) {
+                        const fwd1 = this.getPiece(cx, cy + dir);
+                        if (!fwd1) {
+                            tryAddMove(cx, cy + dir, false);
+                            if (!piece.hasMoved) {
+                                const fwd2 = this.getPiece(cx, cy + dir * 2);
+                                if (!fwd2) tryAddMove(cx, cy + dir * 2, false);
                             }
                         }
                     }
-
-                    // 3. Атаки (якщо ворог)
                     [1, -1].forEach(dx => {
                         const tx = cx + dx; const ty = cy + dir;
-                        const t = this.getPiece(tx, ty);
-                        if (t && t.c !== piece.c) {
-                            this.highlightedMoves.push({ type: 'point', c: tx, r: ty, capture: true });
+                        if (isVisible(tx, ty)) {
+                            const t = this.getPiece(tx, ty);
+                            if (t && t.c !== piece.c) tryAddMove(tx, ty, true);
                         }
                     });
                 }
-            }
-            
+            }            
             initUI() {
                 const container = document.getElementById('pieceContainer');
                 container.innerHTML = '';
@@ -2955,7 +2979,7 @@ hasAnyLegalMoves(color) {
             _resolveDirs(d) { return typeof d === 'string' ? DIRS[d] : d; }
 
             generatePotentialMoves(piece, cx, cy, bounds = null) {
-                // Если это шашки, используем старую логику (она локальная, не длинная)
+                // ШАШКИ (Локальна логіка, тут все ок)
                 if (this.checkersSymbols.has(piece.s)) {
                     if (!this.multiJumpSource && this.rulesEnabled) return this.getCheckersMoves(piece, cx, cy);
                     else if (this.multiJumpSource) {
@@ -2969,7 +2993,11 @@ hasAnyLegalMoves(color) {
                 const type = piece.s;
                 const isWhite = piece.c === 'w';
 
-                // Функция для добавления одной точки (прыжок коня, короля)
+                // --- ГОЛОВНИЙ ФІКС: ЛІМІТ ГЕНЕРАЦІЇ ---
+                // Ми не дозволяємо створювати масиви довші за 2000 елементів.
+                // Це захищає пам'ять при розмірі дошки 1 000 000.
+                const SAFE_LIMIT = 2000; 
+
                 const addStep = (dx, dy) => {
                     let x = cx + dx; let y = cy + dy;
                     if (x >= 0 && x < this.boardSize && y >= 0 && y < this.boardSize) {
@@ -2977,55 +3005,41 @@ hasAnyLegalMoves(color) {
                     }
                 };
 
-                // ВАЖНО: Оптимизированная трассировка (Слайдеры: Ладья, Слон, Ферзь)
                 const addTrace = (dx, dy) => {
                     let x = cx + dx; 
                     let y = cy + dy;
-                    
-                    // Защита от бесконечного цикла, но теперь ограничена экраном или доской
                     let steps = 0;
-                    // Максимум шагов ограничиваем размером доски, но прервем раньше
-                    const maxSteps = this.boardSize; 
+
+                    // Використовуємо SAFE_LIMIT замість boardSize
+                    const maxSteps = Math.min(this.boardSize, SAFE_LIMIT);
 
                     while (x >= 0 && x < this.boardSize && y >= 0 && y < this.boardSize && steps < maxSteps) {
-                        // 1. ВИРТУАЛЬНАЯ ОПТИМИЗАЦИЯ:
-                        // Если есть границы экрана (bounds) и мы вышли за них — ПРЕРЫВАЕМСЯ.
-                        // Нет смысла рисовать точки там, где игрок не видит.
                         if (bounds) {
-                            // Проверяем, движемся ли мы ОТ фигуры ЗА пределы экрана
-                            // (Упрощенно: если точка вне экрана, перестаем добавлять)
+                            // Додаткова оптимізація, якщо передані межі екрану
                             if (x < bounds.minC || x > bounds.maxC || y < bounds.minR || y > bounds.maxR) {
-                                // Но нужно быть осторожным: если фигура сама за экраном, а бьет В экран.
-                                // Поэтому проверяем: если мы УЖЕ далеко от фигуры и вышли за экран.
+                                // Дозволяємо невеликий вихід за межі, щоб не обрізати різко
                                 if (Math.abs(x - cx) > 50 || Math.abs(y - cy) > 50) break;
-                                
-                                // Или просто: если точка далеко за пределами вьюпорта, break.
-                                // Разрешаем небольшой "овердрафт", чтобы линии не обрывались резко при скролле
                             }
                         }
 
                         const target = this.getPiece(x, y);
                         if (target) {
-                            // Если встретили фигуру
-                            if (target.c !== piece.c) moves.push({c: x, r: y}); // Бьем врага
-                            break; // И останавливаемся
+                            if (target.c !== piece.c) moves.push({c: x, r: y});
+                            break; 
                         }
                         
-                        // Если пусто - добавляем ход
                         moves.push({c: x, r: y});
-                        
                         x += dx; y += dy;
                         steps++;
                     }
                 };
 
-                // Стандартные правила движения
+                // Логіка фігур
                 if (['♖','♜','♕','♛'].includes(type)) { addTrace(1,0); addTrace(-1,0); addTrace(0,1); addTrace(0,-1); }
                 if (['♗','♝','♕','♛'].includes(type)) { addTrace(1,1); addTrace(-1,1); addTrace(1,-1); addTrace(-1,-1); }
                 if (['♘','♞'].includes(type)) { [[1,2],[1,-2],[-1,2],[-1,-2],[2,1],[2,-1],[-2,1],[-2,-1]].forEach(d => addStep(d[0], d[1])); }
                 if (['♔','♚'].includes(type)) { for(let i=-1;i<=1;i++) for(let j=-1;j<=1;j++) if(i||j) addStep(i,j); }
                 
-                // Пешки
                 if (['♙','♟'].includes(type)) {
                     const d = isWhite ? -1 : 1;
                     if (!this.getPiece(cx, cy + d)) addStep(0, d);
@@ -3034,22 +3048,17 @@ hasAnyLegalMoves(color) {
                     const t2 = this.getPiece(cx - 1, cy + d); if (t2 && t2.c !== piece.c) addStep(-1, d);
                 }
                 
-                // Мега-фигуры
                 if (megaDefs[type]) {
                     const def = megaDefs[type];
                     const FLIP_Y_LIST = ['🚀','⚓','🏹','🎣','😺','🐗','🌊','🗡️','📜'];
                     const processComp = (comp) => {
                         const dirs = this._resolveDirs(comp.d || comp.dirs);
-                        const limit = comp.max || this.boardSize;
                         const moveType = comp.t || def.t;
                         for (const d of dirs) {
                             let dirX = d[0]; let dirY = d[1];
                             if (!isWhite && FLIP_Y_LIST.includes(type)) dirY = -dirY;
                             
                             if (moveType === 'slide' || moveType === 'slide_jump') {
-                                // Здесь мы не можем просто передать limit, так как addTrace теперь сам решает когда остановиться
-                                // Но для "коротких" слайдеров (ограниченных max), мы можем проверять внутри
-                                // Для упрощения используем тот же addTrace, он сам обрежется границами экрана
                                 addTrace(dirX, dirY); 
                             } else { 
                                 let mul = comp.mul || 1; 
@@ -3140,18 +3149,44 @@ hasAnyLegalMoves(color) {
             }
 
               calculateHighlights(piece, cx, cy) {
+                // Якщо правила вимкнені, взагалі нічого не рахуємо
                 if (!this.rulesEnabled) return;
                 
                 this.highlightedMoves = [];
                 const type = piece.s;
                 const isWhite = piece.c === 'w';
 
-                // Функція-помічник: додає хід, ТІЛЬКИ ЯКЩО він безпечний
+                // --- 1. ОПТИМІЗАЦІЯ ЕКРАНУ (Viewport Culling) ---
+                const cs = this.cellSize * this.camera.zoom;
+                const width = this.canvas.width; 
+                const height = this.canvas.height;
+                
+                // Рахуємо межі екрану, щоб не додавати точки там, де ми не дивимось
+                const viewMinC = Math.floor((-this.camera.x) / cs) - 2;
+                const viewMaxC = Math.floor((width - this.camera.x) / cs) + 2;
+                const viewMinR = Math.floor((-this.camera.y) / cs) - 2;
+                const viewMaxR = Math.floor((height - this.camera.y) / cs) + 2;
+
+                const isVisible = (c, r) => {
+                    return c >= viewMinC && c <= viewMaxC && r >= viewMinR && r <= viewMaxR;
+                };
+
+                // --- 2. ГОЛОВНИЙ ФІКС ПРОДУКТИВНОСТІ ---
+                // Якщо дошка величезна (>80), ми НЕ перевіряємо безпеку ходу (Шах) для кожної крапки.
+                // Ми це зробимо тільки в момент відпускання фігури.
+                // Це прискорює код у 1000 разів.
+                const performHeavySafetyCheck = (this.boardSize <= 80);
+
                 const tryAddMove = (c, r, isCapture) => {
-                    if (this.simulateMoveAndCheckSafety(piece, cx, cy, c, r)) {
-                        this.highlightedMoves.push({
-                            type: 'point', c: c, r: r, capture: isCapture
-                        });
+                    if (performHeavySafetyCheck) {
+                        // Повна перевірка (тільки для малих дошок)
+                        if (this.simulateMoveAndCheckSafety(piece, cx, cy, c, r)) {
+                            this.highlightedMoves.push({ type: 'point', c: c, r: r, capture: isCapture });
+                        }
+                    } else {
+                        // МИТТЄВА перевірка (тільки геометрія)
+                        // Ми віримо на слово, що хід можливий, а правила перевіримо потім.
+                        this.highlightedMoves.push({ type: 'point', c: c, r: r, capture: isCapture });
                     }
                 };
 
@@ -3159,30 +3194,54 @@ hasAnyLegalMoves(color) {
                 if (this.checkersSymbols.has(type)) {
                     let moves = this.generatePotentialMoves(piece, cx, cy);
                     if (this.hasAnyCaptureMoves(piece.c)) moves = moves.filter(m => m.isCapture);
-                    moves.forEach(m => this.highlightedMoves.push({ type: 'point', c: m.c, r: m.r, capture: !!m.isCapture }));
+                    moves.forEach(m => {
+                        if (isVisible(m.c, m.r) || m.isCapture) {
+                            this.highlightedMoves.push({ type: 'point', c: m.c, r: m.r, capture: !!m.isCapture });
+                        }
+                    });
                     return;
                 }
 
-                // --- 2. ПРОМЕНІ (Тури, Слони, Ферзі) ---
+                // --- 2. ПРОМЕНІ (Тури, Слони, Ферзі + Mega) ---
                 const castRay = (dx, dy, maxLimit = this.boardSize) => {
-                    const end = this.findRayEnd(cx, cy, dx, dy, maxLimit);
-                    let dist = Math.max(Math.abs(end.x - cx), Math.abs(end.y - cy));
-                    if (end.hit && end.ally) dist--;
+                    let x = cx;
+                    let y = cy;
+                    // Жорсткий ліміт циклу, щоб не зависло ніколи
+                    const LOOP_LIMIT = 2500; 
 
-                    for (let i = 1; i <= dist; i++) {
-                        const tx = cx + dx * i;
-                        const ty = cy + dy * i;
-                        const isLastStep = (i === dist);
-                        const isCapture = isLastStep && end.hit && !end.ally;
+                    for (let i = 1; i <= maxLimit && i < LOOP_LIMIT; i++) {
+                        x += dx;
+                        y += dy;
+
+                        // Перевірка меж дошки
+                        if (x < 0 || x >= this.boardSize || y < 0 || y >= this.boardSize) break;
+
+                        // ОПТИМІЗАЦІЯ: Якщо вийшли за межі екрану - стоп
+                        const visible = isVisible(x, y);
                         
-                        // ВАЖЛИВО: Перевіряємо безпеку кожної точки
-                        tryAddMove(tx, ty, isCapture);
+                        if (!visible) {
+                            // Якщо ми далеко за межами екрану (з запасом 5 клітинок) -> STOP
+                            if (x < viewMinC - 5 || x > viewMaxC + 5 || y < viewMinR - 5 || y > viewMaxR + 5) break; 
+                        }
+
+                        const target = this.getPiece(x, y);
+
+                        if (!target) {
+                            if (visible) tryAddMove(x, y, false);
+                        } else {
+                            if (target.c !== piece.c) {
+                                // Атаку додаємо, навіть якщо вона трохи за межами (для видимості загрози)
+                                if (visible || isVisible(x - dx, y - dy)) tryAddMove(x, y, true);
+                            }
+                            break; // Вперлися в фігуру
+                        }
                     }
                 };
 
-                // --- 3. СТРИБКИ (Коні) ---
                 const checkJump = (dx, dy) => {
                     const tx = cx + dx; const ty = cy + dy;
+                    if (!isVisible(tx, ty)) return; // Не малюємо те, що не видно
+                    
                     if (tx >= 0 && tx < this.boardSize && ty >= 0 && ty < this.boardSize) {
                         const target = this.getPiece(tx, ty);
                         if (!target || target.c !== piece.c) {
@@ -3191,12 +3250,11 @@ hasAnyLegalMoves(color) {
                     }
                 };
 
-                // Логіка для типів фігур
+                // Логіка типів (Standard)
                 if (['♖','♜','♕','♛'].includes(type)) { castRay(1,0); castRay(-1,0); castRay(0,1); castRay(0,-1); }
                 if (['♗','♝','♕','♛'].includes(type)) { castRay(1,1); castRay(-1,1); castRay(1,-1); castRay(-1,-1); }
                 if (['♘','♞'].includes(type)) { [[1,2],[1,-2],[-1,2],[-1,-2],[2,1],[2,-1],[-2,1],[-2,-1]].forEach(d => checkJump(d[0], d[1])); }
                 
-                // Король
                 if (['♔','♚'].includes(type)) { 
                     for(let i=-1; i<=1; i++) for(let j=-1; j<=1; j++) {
                         if(i===0 && j===0) continue;
@@ -3204,7 +3262,7 @@ hasAnyLegalMoves(color) {
                     }
                 }
 
-                // Mega
+                // Логіка Mega
                 if (megaDefs[type]) {
                      const def = megaDefs[type];
                      const FLIP_Y_LIST = ['🚀','⚓','🏹','🎣','😺','🐗','🌊','🗡️','📜'];
@@ -3218,46 +3276,29 @@ hasAnyLegalMoves(color) {
                             if (!isWhite && FLIP_Y_LIST.includes(type)) dirY = -dirY;
 
                             if (moveType === 'slide') {
-                                // Для звичайних слайдерів (Ракета, Маг) залишаємо castRay - він тут працює добре
                                 castRay(dirX, dirY, limit);
                             } 
                             else if (moveType === 'slide_jump') {
-                                // --- ВИПРАВЛЕННЯ ДЛЯ ПАВУКА ТА ВЕРШНИКА ---
-                                // Ми не використовуємо castRay, бо він неправильно рахує вектори (1,2).
-                                // Робимо простий цикл "стрибків".
-                                
-                                let cx_jump = cx;
-                                let cy_jump = cy;
-                                // Безпечний ліміт кроків
-                                const safeLimit = Math.min(limit, this.boardSize);
-
-                                for (let k = 0; k < safeLimit; k++) {
-                                    cx_jump += dirX;
-                                    cy_jump += dirY;
-
-                                    // 1. Перевірка меж (щоб не малювати за екраном)
-                                    if (cx_jump < 0 || cx_jump >= this.boardSize || cy_jump < 0 || cy_jump >= this.boardSize) break;
-
-                                    const target = this.getPiece(cx_jump, cy_jump);
+                                // Лімітований слайд-джамп
+                                let cx_j = cx, cy_j = cy;
+                                for(let k=0; k<Math.min(limit, 2500); k++) {
+                                    cx_j += dirX; cy_j += dirY;
+                                    if (cx_j < 0 || cx_j >= this.boardSize || cy_j < 0 || cy_j >= this.boardSize) break;
+                                    // Перевірка меж екрану
+                                    if (cx_j < viewMinC - 5 || cx_j > viewMaxC + 5 || cy_j < viewMinR - 5 || cy_j > viewMaxR + 5) break;
                                     
-                                    if (!target) {
-                                        // Пусто -> додаємо точку
-                                        tryAddMove(cx_jump, cy_jump, false);
-                                    } else {
-                                        // Вперлися в фігуру
-                                        if (target.c !== piece.c) {
-                                            // Ворог -> додаємо атаку
-                                            tryAddMove(cx_jump, cy_jump, true);
-                                        }
-                                        break; // Далі не йдемо
+                                    const vis = isVisible(cx_j, cy_j);
+                                    const t = this.getPiece(cx_j, cy_j);
+                                    
+                                    if(!t) { 
+                                        if(vis) tryAddMove(cx_j, cy_j, false); 
+                                    } else { 
+                                        if(t.c !== piece.c && vis) tryAddMove(cx_j, cy_j, true); 
+                                        break; 
                                     }
                                 }
                             }
-                            else { 
-                                // Для звичайних стрибків (step/jump)
-                                let mul = comp.mul || 1; 
-                                checkJump(dirX * mul, dirY * mul); 
-                            }
+                            else { let mul = comp.mul || 1; checkJump(dirX * mul, dirY * mul); }
                         }
                      };
                      if (def.t === 'complex') def.comps.forEach(c => processComp(c)); else processComp(def);
@@ -3266,26 +3307,24 @@ hasAnyLegalMoves(color) {
                 // --- 4. ПІШАКИ ---
                 if (['♙','♟'].includes(type)) {
                     const dir = isWhite ? -1 : 1;
-                    const fwd1 = this.getPiece(cx, cy + dir);
-                    
-                    // Хід вперед на 1
-                    if (!fwd1) {
-                        tryAddMove(cx, cy + dir, false);
-                        
-                        // Хід вперед на 2
-                        if (!piece.hasMoved) {
-                            const fwd2 = this.getPiece(cx, cy + dir * 2);
-                            if (!fwd2) {
-                                tryAddMove(cx, cy + dir * 2, false);
+                    // Малюємо тільки якщо в межах екрану
+                    if (isVisible(cx, cy + dir) || isVisible(cx, cy + dir * 2)) {
+                        const fwd1 = this.getPiece(cx, cy + dir);
+                        if (!fwd1) {
+                            tryAddMove(cx, cy + dir, false);
+                            if (!piece.hasMoved) {
+                                const fwd2 = this.getPiece(cx, cy + dir * 2);
+                                if (!fwd2) {
+                                    tryAddMove(cx, cy + dir * 2, false);
+                                }
                             }
                         }
                     }
-                    // Атаки
                     [1, -1].forEach(dx => {
                         const tx = cx + dx; const ty = cy + dir;
-                        const t = this.getPiece(tx, ty);
-                        if (t && t.c !== piece.c) {
-                            tryAddMove(tx, ty, true);
+                        if (isVisible(tx, ty)) {
+                            const t = this.getPiece(tx, ty);
+                            if (t && t.c !== piece.c) tryAddMove(tx, ty, true);
                         }
                     });
                 }
@@ -3378,52 +3417,58 @@ hasAnyLegalMoves(color) {
 // Найдите метод onMouseDown(e) и измените блок "if (e.button === 0)":
 
 onMouseDown(e) {
-    if (this.gameOver || this.isGenerating || this.promotionPending) return;
-    
-    this.clickStart = { x: e.clientX, y: e.clientY };
-    const w = this.screenToWorld(e.clientX, e.clientY);
-    const c = Math.floor(w.x / this.cellSize); 
-    const r = Math.floor(w.y / this.cellSize);
+                if (this.gameOver || this.isGenerating || this.promotionPending) return;
+                
+                this.clickStart = { x: e.clientX, y: e.clientY };
+                const w = this.screenToWorld(e.clientX, e.clientY);
+                const c = Math.floor(w.x / this.cellSize); 
+                const r = Math.floor(w.y / this.cellSize);
 
-    // --- ЛІВА КНОПКА (ЛКМ) ---
-    if (e.button === 0) {
-        this.customArrows = [];       // Очищаем стрелки
-        this.highlightedSquares = []; // <--- ДОБАВЛЕНО: Очищаем красные клетки
-        
-        // ... (дальше ваш старый код: гумка, перетягивание фигур и т.д.)
-        if (!this.turnModeEnabled && (this.curSymbol === '❌' || this.curSymbol === 'delete')) {
-            this.tryPlacePiece(c, r); 
-            return; 
-        }
-        
-        const piece = this.getPiece(c, r);
-        let canGrabPiece = false;
-        if (piece) {
-            if (!this.turnModeEnabled || piece.c === this.currentTurn) {
-                canGrabPiece = true;
+                // --- ЛІВА КНОПКА (ЛКМ) ---
+                if (e.button === 0) {
+                    this.customArrows = [];       
+                    this.highlightedSquares = []; 
+                    
+                    if (!this.turnModeEnabled && (this.curSymbol === '❌' || this.curSymbol === 'delete')) {
+                        this.tryPlacePiece(c, r); 
+                        return; 
+                    }
+                    
+                    const piece = this.getPiece(c, r);
+                    let canGrabPiece = false;
+                    if (piece) {
+                        if (!this.turnModeEnabled || piece.c === this.currentTurn) {
+                            canGrabPiece = true;
+                        }
+                    }
+
+                    if (canGrabPiece) {
+                        this.isDraggingPiece = true;
+                        this.draggedPiece = { data: piece, startC: c, startR: r };
+                        
+                        // 1. Первинний розрахунок
+                        this.calculateHighlights(piece, c, r);
+                        
+                        // 2. [НОВЕ] Зберігаємо камеру для відстеження змін
+                        this.lastHighCam = { x: this.camera.x, y: this.camera.y, zoom: this.camera.zoom };
+
+                    } else {
+                        this.isDragging = true; 
+                        this.lastMouse = { x: e.clientX, y: e.clientY }; 
+                        this.canvas.style.cursor = "grabbing";
+                    }
+                } 
+                
+                // --- ПРАВА КНОПКА (ПКМ) ---
+                else if (e.button === 2) {
+                    if (c >= 0 && c < this.boardSize && r >= 0 && r < this.boardSize) {
+                        this.rmbStart = { c, r };
+                    } else {
+                        this.rmbStart = null;
+                    }
+                }
             }
-        }
-
-        if (canGrabPiece) {
-            this.isDraggingPiece = true;
-            this.draggedPiece = { data: piece, startC: c, startR: r };
-            this.calculateHighlights(piece, c, r);
-        } else {
-            this.isDragging = true; 
-            this.lastMouse = { x: e.clientX, y: e.clientY }; 
-            this.canvas.style.cursor = "grabbing";
-        }
-    } 
-    
-    // --- ПРАВА КНОПКА (ПКМ) ---
-    else if (e.button === 2) {
-        if (c >= 0 && c < this.boardSize && r >= 0 && r < this.boardSize) {
-            this.rmbStart = { c, r };
-        } else {
-            this.rmbStart = null;
-        }
-    }
-}
+            
            onMouseMove(e) {
                 this.mouse.x = e.clientX; this.mouse.y = e.clientY;
                 if (this.promotionPending) return;
