@@ -551,7 +551,8 @@ const FANTASY_LIST = [
                 this.cellSize = 60;
 
                 this.camera = { x: 0, y: 0, zoom: 1 };
-                
+                this.lastHighCam = { x: 0, y: 0, zoom: 1 }; // <--- ДОДАТИ ЦЕ
+
                 // Додаємо targetCamera для стабілізації
                 this.targetCamera = { x: 0, y: 0, zoom: 1 }; 
                 this.pendingCaptures = [];
@@ -2993,10 +2994,11 @@ hasAnyLegalMoves(color) {
                 const type = piece.s;
                 const isWhite = piece.c === 'w';
 
-                // --- ГОЛОВНИЙ ФІКС: ЛІМІТ ГЕНЕРАЦІЇ ---
-                // Ми не дозволяємо створювати масиви довші за 2000 елементів.
-                // Це захищає пам'ять при розмірі дошки 1 000 000.
-                const SAFE_LIMIT = 2000; 
+                // --- ФІКС: ЗБІЛЬШУЄМО ЛІМІТ ---
+                // Раніше було 2000. Ставимо 100 000. 
+                // Це покриє твою дошку 8000, і навіть 50 000.
+                // Для дошок > 100 000 він обріже, щоб не завис браузер.
+                const SAFE_LIMIT = 200000; 
 
                 const addStep = (dx, dy) => {
                     let x = cx + dx; let y = cy + dy;
@@ -3010,14 +3012,13 @@ hasAnyLegalMoves(color) {
                     let y = cy + dy;
                     let steps = 0;
 
-                    // Використовуємо SAFE_LIMIT замість boardSize
+                    // Використовуємо збільшений ліміт
                     const maxSteps = Math.min(this.boardSize, SAFE_LIMIT);
 
                     while (x >= 0 && x < this.boardSize && y >= 0 && y < this.boardSize && steps < maxSteps) {
                         if (bounds) {
-                            // Додаткова оптимізація, якщо передані межі екрану
+                            // Оптимізація для Viewport (якщо передані межі)
                             if (x < bounds.minC || x > bounds.maxC || y < bounds.minR || y > bounds.maxR) {
-                                // Дозволяємо невеликий вихід за межі, щоб не обрізати різко
                                 if (Math.abs(x - cx) > 50 || Math.abs(y - cy) > 50) break;
                             }
                         }
@@ -3149,19 +3150,17 @@ hasAnyLegalMoves(color) {
             }
 
               calculateHighlights(piece, cx, cy) {
-                // Якщо правила вимкнені, взагалі нічого не рахуємо
                 if (!this.rulesEnabled) return;
                 
                 this.highlightedMoves = [];
                 const type = piece.s;
                 const isWhite = piece.c === 'w';
 
-                // --- 1. ОПТИМІЗАЦІЯ ЕКРАНУ (Viewport Culling) ---
+                // --- 1. ОПТИМІЗАЦІЯ ЕКРАНУ ---
                 const cs = this.cellSize * this.camera.zoom;
                 const width = this.canvas.width; 
                 const height = this.canvas.height;
                 
-                // Рахуємо межі екрану, щоб не додавати точки там, де ми не дивимось
                 const viewMinC = Math.floor((-this.camera.x) / cs) - 2;
                 const viewMaxC = Math.floor((width - this.camera.x) / cs) + 2;
                 const viewMinR = Math.floor((-this.camera.y) / cs) - 2;
@@ -3171,26 +3170,20 @@ hasAnyLegalMoves(color) {
                     return c >= viewMinC && c <= viewMaxC && r >= viewMinR && r <= viewMaxR;
                 };
 
-                // --- 2. ГОЛОВНИЙ ФІКС ПРОДУКТИВНОСТІ ---
-                // Якщо дошка величезна (>80), ми НЕ перевіряємо безпеку ходу (Шах) для кожної крапки.
-                // Ми це зробимо тільки в момент відпускання фігури.
-                // Це прискорює код у 1000 разів.
+                // Для дошок > 80 ми вимикаємо важку перевірку на шах для кожної точки (це прискорює)
                 const performHeavySafetyCheck = (this.boardSize <= 80);
 
                 const tryAddMove = (c, r, isCapture) => {
                     if (performHeavySafetyCheck) {
-                        // Повна перевірка (тільки для малих дошок)
                         if (this.simulateMoveAndCheckSafety(piece, cx, cy, c, r)) {
                             this.highlightedMoves.push({ type: 'point', c: c, r: r, capture: isCapture });
                         }
                     } else {
-                        // МИТТЄВА перевірка (тільки геометрія)
-                        // Ми віримо на слово, що хід можливий, а правила перевіримо потім.
                         this.highlightedMoves.push({ type: 'point', c: c, r: r, capture: isCapture });
                     }
                 };
 
-                // --- 1. ШАШКИ ---
+                // --- ШАШКИ ---
                 if (this.checkersSymbols.has(type)) {
                     let moves = this.generatePotentialMoves(piece, cx, cy);
                     if (this.hasAnyCaptureMoves(piece.c)) moves = moves.filter(m => m.isCapture);
@@ -3202,26 +3195,37 @@ hasAnyLegalMoves(color) {
                     return;
                 }
 
-                // --- 2. ПРОМЕНІ (Тури, Слони, Ферзі + Mega) ---
+                // --- ПРОМЕНІ (Тури, Слони...) ---
                 const castRay = (dx, dy, maxLimit = this.boardSize) => {
                     let x = cx;
                     let y = cy;
-                    // Жорсткий ліміт циклу, щоб не зависло ніколи
-                    const LOOP_LIMIT = 2500; 
-
-                    for (let i = 1; i <= maxLimit && i < LOOP_LIMIT; i++) {
+                    
+                    // --- ФІКС ТУТ: ЗБІЛЬШЕНИЙ ЛІМІТ ЦИКЛУ ---
+                    // Якщо дошка менше 100 000, дозволяємо йти до кінця.
+                    // Якщо дошка 1 млрд, обмежуємо до 100 000, щоб не зависло намертво.
+                    const SAFE_MAX = (this.boardSize <= 100000) ? this.boardSize + 100 : 100000;
+                    
+                    for (let i = 1; i <= maxLimit && i < SAFE_MAX; i++) {
                         x += dx;
                         y += dy;
 
                         // Перевірка меж дошки
                         if (x < 0 || x >= this.boardSize || y < 0 || y >= this.boardSize) break;
 
-                        // ОПТИМІЗАЦІЯ: Якщо вийшли за межі екрану - стоп
+                        // ОПТИМІЗАЦІЯ: Якщо вийшли за межі екрану - стоп?
+                        // НІ! Якщо ми бачимо всю дошку (зум 0.001), isVisible завжди true.
+                        // А якщо ми приблизили, isVisible спрацює і цикл продовжить шукати,
+                        // але не буде малювати зайвого.
+                        
                         const visible = isVisible(x, y);
                         
+                        // Додатковий запобіжник: якщо ми ДУЖЕ далеко за межами екрану (більше 200 клітинок)
+                        // і рухаємось ВІД екрану, тоді можна зупинитись.
                         if (!visible) {
-                            // Якщо ми далеко за межами екрану (з запасом 5 клітинок) -> STOP
-                            if (x < viewMinC - 5 || x > viewMaxC + 5 || y < viewMinR - 5 || y > viewMaxR + 5) break; 
+                            if ((dx > 0 && x > viewMaxC + 200) || (dx < 0 && x < viewMinC - 200) ||
+                                (dy > 0 && y > viewMaxR + 200) || (dy < 0 && y < viewMinR - 200)) {
+                                break; 
+                            }
                         }
 
                         const target = this.getPiece(x, y);
@@ -3230,18 +3234,16 @@ hasAnyLegalMoves(color) {
                             if (visible) tryAddMove(x, y, false);
                         } else {
                             if (target.c !== piece.c) {
-                                // Атаку додаємо, навіть якщо вона трохи за межами (для видимості загрози)
                                 if (visible || isVisible(x - dx, y - dy)) tryAddMove(x, y, true);
                             }
-                            break; // Вперлися в фігуру
+                            break; 
                         }
                     }
                 };
 
                 const checkJump = (dx, dy) => {
                     const tx = cx + dx; const ty = cy + dy;
-                    if (!isVisible(tx, ty)) return; // Не малюємо те, що не видно
-                    
+                    if (!isVisible(tx, ty)) return; 
                     if (tx >= 0 && tx < this.boardSize && ty >= 0 && ty < this.boardSize) {
                         const target = this.getPiece(tx, ty);
                         if (!target || target.c !== piece.c) {
@@ -3250,19 +3252,14 @@ hasAnyLegalMoves(color) {
                     }
                 };
 
-                // Логіка типів (Standard)
+                // Виклик логіки для типів фігур
                 if (['♖','♜','♕','♛'].includes(type)) { castRay(1,0); castRay(-1,0); castRay(0,1); castRay(0,-1); }
                 if (['♗','♝','♕','♛'].includes(type)) { castRay(1,1); castRay(-1,1); castRay(1,-1); castRay(-1,-1); }
                 if (['♘','♞'].includes(type)) { [[1,2],[1,-2],[-1,2],[-1,-2],[2,1],[2,-1],[-2,1],[-2,-1]].forEach(d => checkJump(d[0], d[1])); }
-                
                 if (['♔','♚'].includes(type)) { 
-                    for(let i=-1; i<=1; i++) for(let j=-1; j<=1; j++) {
-                        if(i===0 && j===0) continue;
-                        checkJump(i, j);
-                    }
+                    for(let i=-1; i<=1; i++) for(let j=-1; j<=1; j++) { if(i||j) checkJump(i, j); }
                 }
 
-                // Логіка Mega
                 if (megaDefs[type]) {
                      const def = megaDefs[type];
                      const FLIP_Y_LIST = ['🚀','⚓','🏹','🎣','😺','🐗','🌊','🗡️','📜'];
@@ -3270,32 +3267,29 @@ hasAnyLegalMoves(color) {
                         const dirs = this._resolveDirs(comp.d || comp.dirs);
                         const limit = comp.max || this.boardSize;
                         const moveType = comp.t || def.t;
-                        
                         for (const d of dirs) {
                             let dirX = d[0], dirY = d[1];
                             if (!isWhite && FLIP_Y_LIST.includes(type)) dirY = -dirY;
-
-                            if (moveType === 'slide') {
-                                castRay(dirX, dirY, limit);
-                            } 
+                            if (moveType === 'slide') castRay(dirX, dirY, limit);
                             else if (moveType === 'slide_jump') {
-                                // Лімітований слайд-джамп
                                 let cx_j = cx, cy_j = cy;
-                                for(let k=0; k<Math.min(limit, 2500); k++) {
+                                // Тут теж збільшуємо ліміт для складних фігур
+                                const SAFE_JUMP = (this.boardSize <= 100000) ? this.boardSize : 100000;
+                                for(let k=0; k<Math.min(limit, SAFE_JUMP); k++) {
                                     cx_j += dirX; cy_j += dirY;
                                     if (cx_j < 0 || cx_j >= this.boardSize || cy_j < 0 || cy_j >= this.boardSize) break;
-                                    // Перевірка меж екрану
-                                    if (cx_j < viewMinC - 5 || cx_j > viewMaxC + 5 || cy_j < viewMinR - 5 || cy_j > viewMaxR + 5) break;
                                     
                                     const vis = isVisible(cx_j, cy_j);
-                                    const t = this.getPiece(cx_j, cy_j);
                                     
-                                    if(!t) { 
-                                        if(vis) tryAddMove(cx_j, cy_j, false); 
-                                    } else { 
-                                        if(t.c !== piece.c && vis) tryAddMove(cx_j, cy_j, true); 
-                                        break; 
+                                    // Запобіжник виходу за екран для стрибунів
+                                    if (!vis) {
+                                        if ((dirX > 0 && cx_j > viewMaxC + 200) || (dirX < 0 && cx_j < viewMinC - 200) ||
+                                            (dirY > 0 && cy_j > viewMaxR + 200) || (dirY < 0 && cy_j < viewMinR - 200)) break;
                                     }
+
+                                    const t = this.getPiece(cx_j, cy_j);
+                                    if(!t) { if(vis) tryAddMove(cx_j, cy_j, false); }
+                                    else { if(t.c !== piece.c && vis) tryAddMove(cx_j, cy_j, true); break; }
                                 }
                             }
                             else { let mul = comp.mul || 1; checkJump(dirX * mul, dirY * mul); }
@@ -3304,19 +3298,15 @@ hasAnyLegalMoves(color) {
                      if (def.t === 'complex') def.comps.forEach(c => processComp(c)); else processComp(def);
                 }
 
-                // --- 4. ПІШАКИ ---
                 if (['♙','♟'].includes(type)) {
                     const dir = isWhite ? -1 : 1;
-                    // Малюємо тільки якщо в межах екрану
-                    if (isVisible(cx, cy + dir) || isVisible(cx, cy + dir * 2)) {
+                    if (isVisible(cx, cy+dir) || isVisible(cx, cy+dir*2)) {
                         const fwd1 = this.getPiece(cx, cy + dir);
                         if (!fwd1) {
                             tryAddMove(cx, cy + dir, false);
                             if (!piece.hasMoved) {
                                 const fwd2 = this.getPiece(cx, cy + dir * 2);
-                                if (!fwd2) {
-                                    tryAddMove(cx, cy + dir * 2, false);
-                                }
+                                if (!fwd2) tryAddMove(cx, cy + dir * 2, false);
                             }
                         }
                     }
@@ -3714,23 +3704,18 @@ onMouseUp(e) {
             screenToWorld(sx, sy) { return { x: (sx - this.camera.x) / this.camera.zoom, y: (sy - this.camera.y) / this.camera.zoom }; }
 
             update() {
-                // Клавіатура (рухає ціль)
+                // --- 1. Керування клавіатурою (без змін) ---
                 const moveSpeed = 15;
                 if (this.keys.ArrowLeft) this.targetCamera.x += moveSpeed;
                 if (this.keys.ArrowRight) this.targetCamera.x -= moveSpeed;
                 if (this.keys.ArrowUp) this.targetCamera.y += moveSpeed;
                 if (this.keys.ArrowDown) this.targetCamera.y -= moveSpeed;
 
-                // Інтерполяція (Lerp)
-                // Використовуємо один фактор для всього, щоб рух був синхронним
+                // --- 2. Плавна камера (Lerp) (без змін) ---
                 const factor = 0.12; 
-
-                // Перевіряємо різницю, щоб не рахувати зайвого (економія CPU)
                 const diffZ = Math.abs(this.targetCamera.zoom - this.camera.zoom);
                 const diffX = Math.abs(this.targetCamera.x - this.camera.x);
                 const diffY = Math.abs(this.targetCamera.y - this.camera.y);
-
-                // Поріг чутливості залежить від масштабу
                 const threshold = Math.max(1e-10, this.targetCamera.zoom * 0.0001);
 
                 if (diffZ > threshold || diffX > 1 || diffY > 1) {
@@ -3738,22 +3723,48 @@ onMouseUp(e) {
                     this.camera.x += (this.targetCamera.x - this.camera.x) * factor;
                     this.camera.y += (this.targetCamera.y - this.camera.y) * factor;
 
-                    // Оновлення UI
+                    // Оновлення UI тексту
                     if (this.camera.zoom > 0) {
-                        document.getElementById('zoomSlider').value = Math.log10(this.camera.zoom);
+                        const sVal = Math.log10(this.camera.zoom);
+                        if (isFinite(sVal)) document.getElementById('zoomSlider').value = sVal;
                     }
                     let disp = Math.round(this.camera.zoom * 100) + '%';
                     if (this.camera.zoom < 0.01) disp = this.camera.zoom.toExponential(2);
                     document.getElementById('zoomDisplay').innerText = disp;
                 } else {
-                    // "Примагнічуємо" в кінці анімації, щоб прибрати мікро-тремтіння
                     this.camera.zoom = this.targetCamera.zoom;
                     this.camera.x = this.targetCamera.x;
                     this.camera.y = this.targetCamera.y;
                 }
 
-                // Обмежуємо камеру (щоб не полетіла в космос)
                 this.clampCamera();
+
+                // --- 3. ДИНАМІЧНА ПІДСВІТКА (НОВЕ!) ---
+                // Якщо ми тягнемо фігуру, перевіряємо, чи змінилась камера
+                if (this.isDraggingPiece && this.draggedPiece) {
+                    // Рахуємо різницю між поточною камерою і тією, коли ми востаннє рахували точки
+                    const dZ = Math.abs(this.camera.zoom - this.lastHighCam.zoom) / this.lastHighCam.zoom;
+                    const dX = Math.abs(this.camera.x - this.lastHighCam.x);
+                    const dY = Math.abs(this.camera.y - this.lastHighCam.y);
+
+                    // Поріг оновлення: 
+                    // Якщо зум змінився на >5% АБО позиція змістилась на >50 пікселів
+                    if (dZ > 0.05 || dX > 50 || dY > 50) {
+                        // Перераховуємо підсвітку для НОВОГО виду
+                        this.calculateHighlights(
+                            this.draggedPiece.data, 
+                            this.draggedPiece.startC, 
+                            this.draggedPiece.startR
+                        );
+                        
+                        // Оновлюємо збережену позицію
+                        this.lastHighCam = { 
+                            x: this.camera.x, 
+                            y: this.camera.y, 
+                            zoom: this.camera.zoom 
+                        };
+                    }
+                }
             }
 
             drawCustomArrows(ctx, cs, bx, by) {
