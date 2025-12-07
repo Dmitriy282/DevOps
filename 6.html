@@ -300,7 +300,12 @@
         <div class="control-group">
              <label>Режими:</label>
              <div class="btn-row">
-                 <button class="undo-btn" onclick="game.undoMove()">↩️ Назад (Del)</button>
+                 <button onclick="game.undoMove()">↩️ Назад (Del)</button>
+                 
+                 <button onclick="game.removeArrow()">🖍️ Видал. стрілку (Shift)</button>
+                 
+                 <button id="btnRemoveHighlight" onclick="game.removeLastHighlight()">🖍️ Видал. підсвітку (Ctrl)</button>
+                 
                  <button id="rulesBtn" onclick="game.toggleRules()">🟢 Правила</button>
              </div>
              <div class="btn-row">
@@ -987,16 +992,27 @@ calculateHighlights(piece, cx, cy) {
                 this.canvas.addEventListener('contextmenu', e => e.preventDefault());
 
                 window.addEventListener('keydown', e => {
-                    if (e.key === 'Delete') {
-                        this.undoMove();
-                    } else {
-                        // this.onKeyDown(e); // <--- ЦЕЙ РЯДОК Я ВИДАЛИВ, ВІН ЛАМАВ НАВІГАЦІЮ
-                        if(this.keys.hasOwnProperty(e.code)) {
-                            this.keys[e.code] = true;
-                            e.preventDefault();
-                        }
+    if (e.key === 'Delete') {
+        this.undoMove();
+    } 
+    // --- НОВИЙ КОД: ВИДАЛЕННЯ СТРІЛОК ЧЕРЕЗ SHIFT ---
+    else if (e.key === 'Shift') {
+        if (this.customArrows.length > 0) {
+            this.customArrows.pop(); // Видаляє останній елемент масиву (останню стрілку)
+        }
+    }
+    else if (e.key === 'Control') {
+                        this.removeLastHighlight();
                     }
-                });
+    // ------------------------------------------------
+    else {
+        // this.onKeyDown(e); 
+        if(this.keys.hasOwnProperty(e.code)) {
+            this.keys[e.code] = true;
+            e.preventDefault();
+        }
+    }
+});
                 window.addEventListener('keyup', e => {
                     if(this.keys.hasOwnProperty(e.code)) this.keys[e.code] = false;
                 });
@@ -2216,6 +2232,19 @@ isPendingCapture(c, r) {
 
     return onlyCaptures ? [] : moves;
 }
+
+// Новий метод для видалення останньої підсвітки
+            removeLastHighlight() {
+                if (this.highlightedSquares.length > 0) {
+                    this.highlightedSquares.pop(); // Видаляє останній елемент масиву
+                    this.updateUI(); // Оновлює екран (викликає render)
+                }
+            }
+removeArrow() {
+                if (this.customArrows.length > 0) {
+                    this.customArrows.pop();
+                }
+            }
 // --- ДОДАЙ ЦЕЙ МЕТОД, ЙОГО НЕ ВИСТАЧАЛО ---
             undoMove() {
                 if (this.moveHistory.length === 0) return;
@@ -3830,7 +3859,7 @@ onMouseUp(e) {
                 ctx.imageSmoothingQuality = "high";
                 const width = this.canvas.width; const height = this.canvas.height;
                 const cs = this.cellSize * this.camera.zoom;
-
+                
 
                 // 1. Очищення
                 ctx.fillStyle = this.colors.void;
