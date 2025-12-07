@@ -1005,6 +1005,41 @@ calculateHighlights(piece, cx, cy) {
                         this.removeLastHighlight();
                     }
     // ------------------------------------------------
+    else if (e.code === 'KeyX') { 
+                        // Визначаємо, над якою клітинкою мишка
+                        const w = this.screenToWorld(this.mouse.x, this.mouse.y);
+                        const c = Math.floor(w.x / this.cellSize);
+                        const r = Math.floor(w.y / this.cellSize);
+
+                        // Якщо мишка над дошкою
+                        if (c >= 0 && c < this.boardSize && r >= 0 && r < this.boardSize) {
+                            // Шукаємо, чи вже є підсвітка на цій клітинці
+                            const existingIdx = this.highlightedSquares.findIndex(s => s.c === c && s.r === r);
+                            
+                            if (existingIdx >= 0) {
+                                this.highlightedSquares.splice(existingIdx, 1); // Видалити (Вимкнути)
+                            } else {
+                                this.highlightedSquares.push({ c: c, r: r }); // Додати (Увімкнути)
+                            }
+                            this.updateUI(); // Оновити екран
+                        }
+                    }
+    // --- НОВЕ: ПОЧАТОК МАЛЮВАННЯ СТРІЛКИ ПРОБІЛОМ ---
+                    else if (e.code === 'Space') {
+                        e.preventDefault(); // Блокуємо прокрутку сторінки вниз
+                        
+                        if (!this.spaceStart) { // Перевірка, щоб не спрацьовувало повторно при утриманні
+                            const w = this.screenToWorld(this.mouse.x, this.mouse.y);
+                            const c = Math.floor(w.x / this.cellSize);
+                            const r = Math.floor(w.y / this.cellSize);
+
+                            // Якщо курсор над дошкою
+                            if (c >= 0 && c < this.boardSize && r >= 0 && r < this.boardSize) {
+                                this.spaceStart = { c, r }; // Запам'ятовуємо старт
+                            }
+                        }
+                    }
+                    // ------------------------------------------------
     else {
         // this.onKeyDown(e); 
         if(this.keys.hasOwnProperty(e.code)) {
@@ -1014,6 +1049,29 @@ calculateHighlights(piece, cx, cy) {
     }
 });
                 window.addEventListener('keyup', e => {
+                    // --- НОВЕ: ФІНІШ МАЛЮВАННЯ ПРОБІЛОМ ---
+                    if (e.code === 'Space' && this.spaceStart) {
+                        const w = this.screenToWorld(this.mouse.x, this.mouse.y);
+                        const endC = Math.floor(w.x / this.cellSize);
+                        const endR = Math.floor(w.y / this.cellSize);
+                        
+                        const limit = this.boardSize - 1;
+                        const safeEndC = Math.max(0, Math.min(limit, endC));
+                        const safeEndR = Math.max(0, Math.min(limit, endR));
+
+                        if (this.spaceStart.c !== safeEndC || this.spaceStart.r !== safeEndR) {
+                            const newArrow = { sx: this.spaceStart.c, sy: this.spaceStart.r, ex: safeEndC, ey: safeEndR };
+                            const idx = this.customArrows.findIndex(a => a.sx === newArrow.sx && a.sy === newArrow.sy && a.ex === newArrow.ex && a.ey === newArrow.ey);
+                            
+                            if (idx >= 0) this.customArrows.splice(idx, 1);
+                            else this.customArrows.push(newArrow);
+                        }
+                        this.spaceStart = null;
+                        this.previewArrow = null; // Прибираємо зелену лінію
+                        this.updateUI();
+                    }
+                    // ----------------------------------------
+
                     if(this.keys.hasOwnProperty(e.code)) this.keys[e.code] = false;
                 });
 
@@ -3496,22 +3554,26 @@ onMouseDown(e) {
                 const c = Math.floor(w.x / this.cellSize); 
                 const r = Math.floor(w.y / this.cellSize);
 
-                // --- ЛОГІКА МАЛЮВАННЯ СТРІЛКИ (REAL-TIME) ---
-                if (this.rmbStart) {
+                // --- УНІВЕРСАЛЬНЕ МАЛЮВАННЯ СТРІЛКИ (МИШКА + ПРОБІЛ) ---
+                // Вибираємо активний інструмент малювання
+                const activeStart = this.rmbStart || this.spaceStart;
+
+                if (activeStart) {
+                    // Обмежуємо стрілку межами дошки
                     const endC = Math.max(0, Math.min(this.boardSize - 1, c));
                     const endR = Math.max(0, Math.min(this.boardSize - 1, r));
 
-                    // Якщо мишку відвели від стартової клітинки, створюємо прев'ю
-                    if (this.rmbStart.c !== endC || this.rmbStart.r !== endR) {
-                        this.previewArrow = { sx: this.rmbStart.c, sy: this.rmbStart.r, ex: endC, ey: endR };
+                    // Малюємо "фантомну" стрілку, якщо курсор зрушив з місця
+                    if (activeStart.c !== endC || activeStart.r !== endR) {
+                        this.previewArrow = { sx: activeStart.c, sy: activeStart.r, ex: endC, ey: endR };
                     } else {
                         this.previewArrow = null;
                     }
-                    // Примусове оновлення екрану без повного перерахунку UI
-                    // (викликаємо render у циклі animate, тому просто чекаємо наступного кадру)
+                    // Оновлення відбувається в циклі animate
                 }
+                // --------------------------------------------------------
 
-                // 1. Логіка переміщення камери (тепер працює від ЛКМ)
+                // Логіка переміщення камери (залишається без змін)
                 if (this.isDragging) { 
                     const dx = e.clientX - this.lastMouse.x;
                     const dy = e.clientY - this.lastMouse.y;
@@ -3525,10 +3587,10 @@ onMouseDown(e) {
                     this.clampCamera(); 
                 }
                 
-                // 2. Логіка малювання фігур (редактор)
+                // Логіка малювання фігур (редактор)
                 if (this.isPainting) this.tryPlacePiece(c, r);
 
-                // 3. Оновлення координат в UI
+                // Оновлення координат
                 if (c >= 0 && c < this.boardSize && r >= 0 && r < this.boardSize) { 
                     const file = this.getFileLabel(c); 
                     const rank = this.boardSize - r; 
