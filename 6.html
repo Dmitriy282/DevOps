@@ -3827,6 +3827,7 @@ onMouseUp(e) {
             
             render() {
                 const ctx = this.ctx;
+                ctx.imageSmoothingQuality = "high";
                 const width = this.canvas.width; const height = this.canvas.height;
                 const cs = this.cellSize * this.camera.zoom;
 
@@ -4009,11 +4010,7 @@ if (this.highlightedSquares.length > 0) {
                         // Коли ми дуже далеко (насичений режим), краще брати LowRes, 
                         // він часто виглядає "жирніше" ніж Micro.
                         // ... (вибір спрайта)
-                        if (baseSize < 30) {
-                            sprite = this.getLowResSprite(piece.s, piece.c); 
-                        } else {
-                            sprite = this.getPieceSprite(piece.s, piece.c);
-                        }
+                        sprite = this.getPieceSprite(piece.s, piece.c);
                         
                         // 4. МАЛЮВАННЯ З НАХЛЬОСТОМ
                         
