@@ -1044,6 +1044,12 @@ calculateHighlights(piece, cx, cy) {
                             }
                         }
                     }
+                    else if (e.code === 'NumpadAdd' || e.key === '+' || e.key === '=') {
+        this.zoomCenter(1.1); // Збільшити на 10%
+    }
+    else if (e.code === 'NumpadSubtract' || e.key === '-') {
+        this.zoomCenter(0.9); // Зменшити на 10%
+    }
                     // ------------------------------------------------
     else {
         // this.onKeyDown(e); 
@@ -2302,6 +2308,31 @@ isPendingCapture(c, r) {
                     this.highlightedSquares.pop(); // Видаляє останній елемент масиву
                     this.updateUI(); // Оновлює екран (викликає render)
                 }
+            }
+            // Додай цей метод в клас SmoothChess
+            zoomCenter(factor) {
+                // 1. Обчислюємо новий зум
+                let newZoom = this.targetCamera.zoom * factor;
+                newZoom = Math.max(this.minZoom, Math.min(this.maxZoom, newZoom));
+
+                if (newZoom === this.targetCamera.zoom) return;
+
+                // 2. Знаходимо центр екрану
+                const screenCX = this.canvas.width / 2;
+                const screenCY = this.canvas.height / 2;
+
+                // 3. Знаходимо, де цей центр знаходиться у світі ЗАРАЗ
+                const worldCX = (screenCX - this.camera.x) / this.camera.zoom;
+                const worldCY = (screenCY - this.camera.y) / this.camera.zoom;
+
+                // 4. Застосовуємо новий зум і центруємо камеру
+                this.targetCamera.zoom = newZoom;
+                this.targetCamera.x = screenCX - worldCX * newZoom;
+                this.targetCamera.y = screenCY - worldCY * newZoom;
+
+                // Оновлюємо повзунок в UI
+                const slider = document.getElementById('zoomSlider');
+                if (slider) slider.value = Math.log10(newZoom);
             }
 removeArrow() {
                 if (this.customArrows.length > 0) {
