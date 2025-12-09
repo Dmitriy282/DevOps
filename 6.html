@@ -1997,6 +1997,12 @@ getVirtualPiece(c, r) {
                 if (data.boardSize) {
                     document.getElementById('boardSize').value = data.boardSize;
                     this.boardSize = data.boardSize;
+                    
+                    // --- ВИПРАВЛЕННЯ (FIX) ---
+                    // Обов'язково оновлюємо displayBoardSize, щоб статистика (Площа/Фігури) 
+                    // перерахувалася для нового розміру, а не лишилася старою.
+                    this.displayBoardSize = BigInt(this.boardSize);
+                    // -------------------------
                 }
 
                 this.virtualGen = data.virtualGen || null;
@@ -2005,10 +2011,9 @@ getVirtualPiece(c, r) {
 
                 this.currentTurn = data.turn || 'w';
 
-                // 1. Відновлення ПАЛІТРИ (Критично для коректної роботи історії та Undo/Redo)
+                // 1. Відновлення ПАЛІТРИ
                 if (Array.isArray(data.palette)) {
                     this.palette = data.palette;
-                    // Відбудовуємо мапу для швидкого пошуку
                     this.palette.forEach((p, index) => {
                         this.paletteMap.set(p.s + p.c, index + 1);
                     });
@@ -2027,20 +2032,22 @@ getVirtualPiece(c, r) {
                     });
                 }
 
-                // 3. Відновлення історії та логу
-                const logList = document.getElementById('logTableBody'); // Використовуємо правильний ID таблиці
+                // 3. Відновлення історії
+                const logList = document.getElementById('logTableBody'); 
                 if (logList) logList.innerHTML = ''; 
 
                 if (data.moveHistory && Array.isArray(data.moveHistory)) {
                     this.moveHistory = data.moveHistory;
-                    this.updateLogUI(); // Оновлюємо таблицю ходів
+                    this.updateLogUI(); 
                 }
 
                 this.updateTurnIndicator();
                 this.centerBoard();
-                this.updateUI();
+                
+                // --- ОНОВЛЕННЯ СТАТИСТИКИ ---
+                this.updateUI(); // Це викличе updatePieceCounts з правильним displayBoardSize
 
-                console.log("📂 Гра успішно завантажена з повною палітрою.");
+                console.log("📂 Гра успішно завантажена.");
             }
 
                 // Системне повідомлення в лог про успішне завантаження
