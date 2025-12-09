@@ -1619,11 +1619,10 @@ getVirtualPiece(c, r) {
                 return p;
             }
             
-            generateProceduralPiece(c, relativeRow, color, height) {
+          generateProceduralPiece(c, relativeRow, color, height) {
     let armyCenterCol = Math.floor(this.boardSize / 2);
-    if (this.virtualGen === '3player') { /* ... логіка для 3 гравців ... */ }
-
-    // Головний король
+    
+    // Головний король (завжди по центру знизу)
     if (c === armyCenterCol && relativeRow === 0) {
         return { x: c, y: -1, s: color === 'w' ? '♔' : '♚', c: color };
     }
@@ -1641,45 +1640,60 @@ getVirtualPiece(c, r) {
         return { x: c, y: -1, s: sym, c: color };
     }
 
-    // --- ПІШАКИ (для Classic / Fantasy) ---
+    // --- ПІШАКИ (для Classic / Fantasy - завжди останній ряд перед пустим полем) ---
     if (relativeRow === height - 1) {
         return { x: c, y: -1, s: color === 'w' ? '♙' : '♟', c: color };
     }
 
-    // --- ЛОГІКА МІКСУ / КЛАСИКИ ---
+    // === ГЕНЕРАЦІЯ ХАОСУ (Noise Hashing) ===
+    
+    // Функція хешування: перетворює координати (c, relativeRow) та seed у випадкове число.
+    // Це забезпечує детермінований хаос: при тому самому seed дошка завжди однакова,
+    // але фігури розкидані без видимих патернів.
+    const hash = (x, y, seed) => {
+        let h = Math.floor(seed) ^ 0x12345678; 
+        // Перемішуємо біти X
+        h = Math.imul(h ^ x, 3432918353);
+        h = (h << 13) | (h >>> 19);
+        // Перемішуємо біти Y
+        h = Math.imul(h ^ y, 461845907);
+        h = (h << 17) | (h >>> 15);
+        // Фінальне перемішування ("Лавина")
+        h = Math.imul(h, 0x85ebca6b);
+        h ^= h >>> 13;
+        h = Math.imul(h, 0xc2b2ae35);
+        h ^= h >>> 16;
+        return h >>> 0; // Повертаємо позитивне 32-бітне число
+    };
+
     const classicMajors = ['♖', '♘', '♗', '♕'];
     const mirrorMap = { '♖': '♜', '♘': '♞', '♗': '♝', '♕': '♛' };
     const fantasyMajors = FANTASY_LIST; 
     let symbol;
 
-    // ВИКОРИСТОВУЄМО SEED для стабільності
-    const seed = c * 49297 + relativeRow * 9301 + this.generationSeed;
-    // Випадковість для вибору режиму (класика чи фентезі) залишаємо,
-    // але прив'язуємо її до координати жорстко
-    const rnd = Math.abs(Math.sin(seed) * 10000) % 100;
+    // Генеруємо "шум" для цієї клітинки
+    const rndVal = hash(c, relativeRow, this.generationSeed);
+    
+    // Визначаємо відсоток для міксу (0-99)
+    const mixCheck = rndVal % 100;
 
-    if (this.virtualGen === 'fantasy' && rnd < this.virtualProps.mix) {
-        // ВАЖЛИВО: Замість pseudoRandom використовуємо ділення по модулю.
-        // Це гарантує рівномірний розподіл, який ми зможемо порахувати в calculateVirtualCounts.
-        // Множник 1103 просто змішує порядок, щоб однакові фігури не стояли поруч.
-        const safeIndex = (c + relativeRow * 1103) >>> 0; // Захист від від'ємних
-        const idx = safeIndex % fantasyMajors.length;
+    if (this.virtualGen === 'fantasy' && mixCheck < this.virtualProps.mix) {
+        // ФЕНТЕЗІ ФІГУРА
+        // Беремо наступні байти хешу для вибору фігури, щоб не було кореляції з mixCheck
+        const idx = (rndVal >>> 8) % fantasyMajors.length;
         symbol = fantasyMajors[idx];
     } else {
-        // --- ВИПРАВЛЕННЯ ТУТ ---
-        // Ми додаємо this.generationSeed у формулу. 
-        // Тепер при кожному кліку 'Класика' (який змінює seed) фігури будуть зміщуватись.
-        const seedShift = Math.floor(this.generationSeed); 
-        const safeIndex = (c + relativeRow * 7 + seedShift) >>> 0;
-        
-        const idx = safeIndex % classicMajors.length;
+        // КЛАСИЧНА ФІГУРА (Рандом)
+        // Використовуємо хеш, щоб обрати одну з 4 фігур рівномірно
+        const idx = (rndVal >>> 8) % classicMajors.length;
         let base = classicMajors[idx];
+        
         if (color !== 'w') symbol = mirrorMap[base];
         else symbol = base;
     }
+
     return { x: c, y: -1, s: symbol, c: color };
 }
-
             setPiece(c, r, data) {
                 if (c < 0 || c >= this.boardSize || r < 0 || r >= this.boardSize) return;
                 const key = this.getKey(c, r);
