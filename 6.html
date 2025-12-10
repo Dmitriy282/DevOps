@@ -315,6 +315,7 @@
              </div>
              <div class="btn-row">
                  <button id="turnBtn" onclick="game.toggleTurnMode()">🟢 Хід (ВКЛ)</button>
+                 <button id="sandboxBtn" onclick="game.toggleSandbox()" class="secondary">🏖️ Пісочниця (ВИКЛ)</button>
              </div>
         </div>
 
@@ -554,6 +555,7 @@ const FANTASY_LIST = [
 
         class SmoothChess {
             constructor() {
+                this.sandboxMode = false; // <--- ДОДАЙ ЦЕ
                 this.canvas = document.getElementById('canvas');
                 this.ctx = this.canvas.getContext('2d', { alpha: false });
 
@@ -649,6 +651,33 @@ const FANTASY_LIST = [
                 this.init();
                 this.updateTurnIndicator();
             }
+
+            toggleSandbox() {
+                this.sandboxMode = !this.sandboxMode;
+                const btn = document.getElementById('sandboxBtn');
+                
+                if (this.sandboxMode) {
+                    btn.innerText = "🏖️ Пісочниця (ВКЛ)";
+                    btn.className = "action"; // Помаранчевий колір
+                    
+                    // Вимикаємо сувору чергу, щоб не заважала
+                    this.turnModeEnabled = false; 
+                    document.getElementById('turnBtn').innerText = "🔴 Хід (ВИКЛ)";
+                    
+                    // Скидаємо виділення інструменту малювання (бо малювати не можна)
+                    this.curSymbol = null;
+                    document.querySelectorAll('.piece-btn').forEach(b => b.classList.remove('selected'));
+                } else {
+                    btn.innerText = "🏖️ Пісочниця (ВИКЛ)";
+                    btn.className = "secondary"; // Сірий колір
+                    
+                    // Повертаємо режим гри (опціонально)
+                    this.turnModeEnabled = true;
+                    document.getElementById('turnBtn').innerText = "🟢 Хід (ВКЛ)";
+                }
+                this.updateTurnIndicator();
+            }
+
             initNameMapping() {
                 this.nameMap = new Map();
                 // Проходимо по всіх категоріях і запам'ятовуємо назви
@@ -3284,6 +3313,8 @@ getAllKingsCount(color) {
             }
             
             tryPlacePiece(c, r) {
+                if (this.sandboxMode) return;
+                
                 // 1. Перевірка меж дошки
                 if (c < 0 || c >= this.boardSize || r < 0 || r >= this.boardSize) return;
                 
@@ -3610,10 +3641,14 @@ onMouseDown(e) {
                         return; 
                     }
                     
+                    // В onMouseDown (всередині if e.button === 0)
+                    
                     const piece = this.getPiece(c, r);
                     let canGrabPiece = false;
+                    
                     if (piece) {
-                        if (!this.turnModeEnabled || piece.c === this.currentTurn) {
+                        // Якщо це "Пісочниця" АБО "Редактор" (turnMode вимкнено) - беремо все
+                        if (this.sandboxMode || !this.turnModeEnabled || piece.c === this.currentTurn) {
                             canGrabPiece = true;
                         }
                     }
