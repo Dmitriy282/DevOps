@@ -1761,19 +1761,31 @@ getVirtualPiece(c, r) {
                     const moveHTML = `<span class="move-icon">${not.icon}</span><span class="move-coords">${not.start}→${not.end}</span>${not.cap ? '<span class="move-cap">x</span>' : ''}`;
 
                     if (step.turn === 'w') {
-                        // Хід білих - створюємо новий рядок
+                        // Хід білих
+                        
+                        // ФІКС БАГУ: Якщо рядок вже відкритий (значить попередній хід теж був білих, 
+                        // а чорні не відповіли), то ми збільшуємо лічильник і створюємо новий рядок.
+                        if (currentRow) {
+                            moveCount++;
+                        }
+
                         currentRow = document.createElement('tr');
                         currentRow.innerHTML = `<td class="log-num">${moveCount}.</td><td>${moveHTML}</td><td></td>`;
                         tbody.appendChild(currentRow);
                     } else {
                         // Хід чорних
                         if (!currentRow) {
-                            // Якщо історія почалася з чорних (рідкісний випадок)
+                            // Якщо рядок не відкрито (значить попередній хід теж був чорних 
+                            // або гра почалася з чорних)
                             currentRow = document.createElement('tr');
-                            currentRow.innerHTML = `<td class="log-num">${moveCount}.</td><td>...</td><td></td>`;
+                            currentRow.innerHTML = `<td class="log-num">${moveCount}.</td><td>...</td><td>${moveHTML}</td>`;
                             tbody.appendChild(currentRow);
+                        } else {
+                            // Стандартна ситуація: записуємо чорних у вже існуючий рядок білих
+                            currentRow.children[2].innerHTML = moveHTML;
                         }
-                        currentRow.children[2].innerHTML = moveHTML;
+                        
+                        // Після ходу чорних ми завжди завершуємо поточний номер і збільшуємо лічильник
                         moveCount++;
                         currentRow = null;
                     }
@@ -2583,7 +2595,7 @@ findKing(color) {
                 console.log(`Чергу змінено на: ${this.currentTurn === 'w' ? 'Білі' : 'Чорні'}`);
             }
 switchTurn() {
-                if (!this.turnModeEnabled) return;
+                if (!this.turnModeEnabled && !this.sandboxMode) return;
 
                 if (this.pendingCaptures.length > 0) {
                     this.pendingCaptures.forEach(p => this.removePiece(p.x, p.y));
@@ -2601,6 +2613,7 @@ switchTurn() {
                     this.kingsInCheck = { w: [], b: [] };
                 }
                 
+                if (this.sandboxMode) return;
                 this.updateTurnIndicator();
 
                 setTimeout(() => {
@@ -3852,6 +3865,9 @@ onMouseUp(e) {
                                     }
                                     
                                     if (isMoveSafe) {
+                                        if (this.sandboxMode) {
+                                        this.currentTurn = this.draggedPiece.data.c;
+                                            }
                                         // --- ПІДГОТОВКА ІСТОРІЇ ---
                                         const startCoord = this.getCoordString(this.draggedPiece.startC, this.draggedPiece.startR);
                                         const endCoord = this.getCoordString(c, r);
